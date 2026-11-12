@@ -14,9 +14,11 @@ LIVE_STATUSES = {"trial", "active"}
 
 # Mirrors the role matrix in the design: what each role may do.
 PERMISSIONS: dict[str, set[str]] = {
-    "owner": {"floor", "order", "pay", "online", "kds", "reports", "menu", "menu_edit", "staff", "settings"},
-    "manager": {"floor", "order", "pay", "online", "kds", "reports", "menu", "menu_edit", "staff"},
-    "cashier": {"floor", "order", "pay", "online"},
+    "owner": {"floor", "order", "pay", "online", "kds", "reports", "menu", "menu_edit", "staff", "settings",
+              "tables", "discount", "refund", "cash", "history"},
+    "manager": {"floor", "order", "pay", "online", "kds", "reports", "menu", "menu_edit", "staff",
+                "tables", "discount", "refund", "cash", "history"},
+    "cashier": {"floor", "order", "pay", "online", "cash", "history"},
     "captain": {"floor", "order"},
     "chef": {"kds", "menu"},
 }

@@ -6,22 +6,28 @@ from zoneinfo import ZoneInfo
 from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel, Field
 from sqlalchemy import func, select
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, selectinload
 
 from ..db import get_db
 from ..deps import Ctx, require
-from ..models import MenuCategory, MenuItem, Order, User
+from ..models import DiningTable, MenuCategory, MenuItem, ModifierGroup, ModifierOption, Order, User
 from ..security import hash_secret
-from .pos import money
+from .pos import money, tenant_tz
 
 router = APIRouter(tags=["backoffice"])
 
 
 # ---------- Menu ----------
 
-def item_out(m: MenuItem) -> dict:
+def group_out(g: ModifierGroup) -> dict:
+    return {"id": g.id, "name": g.name, "min": g.min_select, "max": g.max_select,
+            "options": [{"id": o.id, "name": o.name, "price": money(o.price)} for o in g.options]}
+
+
+def item_out(m: MenuItem, groups: list[ModifierGroup] | None = None) -> dict:
     return {"id": m.id, "category_id": m.category_id, "name": m.name, "price": money(m.price),
-            "is_veg": m.is_veg, "station": m.station, "available": m.available}
+            "is_veg": m.is_veg, "station": m.station, "available": m.available,
+            "modifiers": [group_out(g) for g in (groups or [])]}
 
 
 @router.get("/menu")
@@ -37,7 +43,12 @@ def menu_manage(ctx: Ctx = Depends(require("menu")), db: Session = Depends(get_d
 def _menu(ctx: Ctx, db: Session):
     cats = db.scalars(select(MenuCategory).where(MenuCategory.tenant_id == ctx.tenant_id).order_by(MenuCategory.sort)).all()
     items = db.scalars(select(MenuItem).where(MenuItem.tenant_id == ctx.tenant_id).order_by(MenuItem.sort, MenuItem.name)).all()
-    return [{"id": c.id, "name": c.name, "items": [item_out(m) for m in items if m.category_id == c.id]} for c in cats]
+    groups: dict[str, list[ModifierGroup]] = {}
+    for g in db.scalars(select(ModifierGroup).where(ModifierGroup.tenant_id == ctx.tenant_id)
+                        .options(selectinload(ModifierGroup.options)).order_by(ModifierGroup.sort)):
+        groups.setdefault(g.menu_item_id, []).append(g)
+    return [{"id": c.id, "name": c.name, "items": [item_out(m, groups.get(m.id)) for m in items if m.category_id == c.id]}
+            for c in cats]
 
 
 class CategoryIn(BaseModel):
@@ -104,6 +115,46 @@ def edit_item(iid: str, body: ItemPatch, ctx: Ctx = Depends(require("menu_edit")
         setattr(m, k, v)
     db.commit()
     return item_out(m)
+
+
+class OptionIn(BaseModel):
+    name: str = Field(min_length=1, max_length=80)
+    price: float = Field(default=0, ge=0, le=1_000_000)
+
+
+class GroupIn(BaseModel):
+    name: str = Field(min_length=1, max_length=80)
+    min: int = Field(default=0, ge=0, le=20)
+    max: int = Field(default=1, ge=0, le=20)  # 0 = no limit
+    options: list[OptionIn] = Field(min_length=1, max_length=30)
+
+
+class ModifiersIn(BaseModel):
+    groups: list[GroupIn] = Field(default_factory=list, max_length=10)
+
+
+@router.put("/menu/items/{iid}/modifiers")
+def set_modifiers(iid: str, body: ModifiersIn, ctx: Ctx = Depends(require("menu_edit")), db: Session = Depends(get_db)):
+    """Replace an item's option groups (sizes, add-ons, spice level...)."""
+    m = own_item(db, ctx, iid)
+    for g in body.groups:
+        if g.max and g.min > g.max:
+            raise HTTPException(422, f"{g.name}: minimum can't be more than maximum")
+        if g.min > len(g.options):
+            raise HTTPException(422, f"{g.name}: not enough options for the minimum")
+    for old in db.scalars(select(ModifierGroup).where(ModifierGroup.menu_item_id == m.id, ModifierGroup.tenant_id == ctx.tenant_id)):
+        db.delete(old)
+    db.flush()
+    out = []
+    for gi, g in enumerate(body.groups):
+        grp = ModifierGroup(tenant_id=ctx.tenant_id, menu_item_id=m.id, name=g.name.strip(), min_select=g.min,
+                            max_select=g.max, sort=gi)
+        grp.options = [ModifierOption(tenant_id=ctx.tenant_id, name=o.name.strip(), price=Decimal(str(o.price)), sort=oi)
+                       for oi, o in enumerate(g.options)]
+        db.add(grp)
+        out.append(grp)
+    db.commit()
+    return item_out(m, out)
 
 
 @router.delete("/menu/items/{iid}")
@@ -173,20 +224,29 @@ def edit_staff(uid: str, body: StaffPatch, ctx: Ctx = Depends(require("staff")),
 
 @router.get("/reports/summary")
 def summary(period: str = Query("today", alias="range"), ctx: Ctx = Depends(require("reports")), db: Session = Depends(get_db)):
-    tz = ZoneInfo("Asia/Kolkata" if ctx.tenant.market == "IN" else "America/New_York")
+    tz = tenant_tz(ctx.tenant)
     days = {"today": 1, "7d": 7, "30d": 30}.get(period, 1)
     local_now = datetime.now(tz)
     start = local_now.replace(hour=0, minute=0, second=0, microsecond=0) - timedelta(days=days - 1)
     prev_start = start - timedelta(days=days)
-    base = select(Order).where(Order.tenant_id == ctx.tenant_id, Order.status == "paid")
+    base = select(Order).where(Order.tenant_id == ctx.tenant_id, Order.status.in_(("paid", "refunded")))
     cur = db.scalars(base.where(Order.closed_at >= start)).all()
     prev = db.scalars(base.where(Order.closed_at >= prev_start, Order.closed_at < start)).all()
 
+    def net_of(o: Order) -> Decimal:
+        """Sales after discounts and refunds, before tax and tips."""
+        taxable = o.subtotal - o.discount_amount
+        gross = taxable + o.tax + o.tip
+        return taxable - (o.refunded * taxable / gross if gross else 0)
+
     def kpi(orders):
-        net = sum((o.subtotal for o in orders), Decimal(0))
+        net = sum((net_of(o) for o in orders), Decimal(0))
         return {"net_sales": money(net), "orders": len(orders),
                 "avg_order": money(net / len(orders)) if orders else 0,
-                "tips": money(sum((o.tip for o in orders), Decimal(0)))}
+                "tips": money(sum((o.tip for o in orders), Decimal(0))),
+                "tax": money(sum((o.tax for o in orders), Decimal(0))),
+                "discounts": money(sum((o.discount_amount for o in orders), Decimal(0))),
+                "refunds": money(sum((o.refunded for o in orders), Decimal(0)))}
 
     if days == 1:
         labels = [f"{h % 12 or 12}{'a' if h < 12 else 'p'}" for h in range(11, 24)]
@@ -194,7 +254,7 @@ def summary(period: str = Query("today", alias="range"), ctx: Ctx = Depends(requ
         for o in cur:
             h = o.closed_at.astimezone(tz).hour
             if h in buckets:
-                buckets[h] += o.subtotal
+                buckets[h] += net_of(o)
         series = [money(v) for v in buckets.values()]
     else:
         keys = [(start + timedelta(days=i)).date() for i in range(days)]
@@ -202,7 +262,7 @@ def summary(period: str = Query("today", alias="range"), ctx: Ctx = Depends(requ
         for o in cur:
             d = o.closed_at.astimezone(tz).date()
             if d in buckets:
-                buckets[d] += o.subtotal
+                buckets[d] += net_of(o)
         labels = [k.strftime("%a" if days == 7 else "%d") for k in keys]
         series = [money(v) for v in buckets.values()]
 
@@ -211,7 +271,7 @@ def summary(period: str = Query("today", alias="range"), ctx: Ctx = Depends(requ
         mix[o.payment_method] = mix.get(o.payment_method, 0) + 1
     channels: dict[str, float] = {}
     for o in cur:
-        channels[o.channel] = channels.get(o.channel, 0) + money(o.subtotal)
+        channels[o.channel] = channels.get(o.channel, 0) + money(net_of(o))
     return {"current": kpi(cur), "previous": kpi(prev), "labels": labels, "series": series,
             "payment_mix": mix, "channels": channels}
 
@@ -224,13 +284,104 @@ class SettingsIn(BaseModel):
     tax_label: str | None = Field(default=None, max_length=80)
     phone: str | None = Field(default=None, max_length=40)
     city: str | None = Field(default=None, max_length=120)
+    address: str | None = Field(default=None, max_length=400)
+    tax_id: str | None = Field(default=None, max_length=60)
+    timezone: str | None = Field(default=None, max_length=64)
+    tips_enabled: bool | None = None
+    receipt_footer: str | None = Field(default=None, max_length=400)
+    auto_print_kot: bool | None = None
+    auto_print_receipt: bool | None = None
+
+
+@router.get("/settings")
+def get_settings(ctx: Ctx = Depends(require("tables")), db: Session = Depends(get_db)):
+    from .auth import tenant_out
+    return tenant_out(ctx.tenant)
 
 
 @router.patch("/settings")
 def update_settings(body: SettingsIn, ctx: Ctx = Depends(require("settings")), db: Session = Depends(get_db)):
     t = db.merge(ctx.tenant)
-    for k, v in body.model_dump(exclude_unset=True).items():
+    data = body.model_dump(exclude_unset=True)
+    if data.get("timezone"):
+        try:
+            ZoneInfo(data["timezone"])
+        except Exception:
+            raise HTTPException(422, "Unknown time zone")
+    for k, v in data.items():
         setattr(t, k, Decimal(str(v)) if k == "tax_rate" else v)
     db.commit()
     from .auth import tenant_out
     return tenant_out(t)
+
+
+# ---------- Tables (floor plan) ----------
+
+def table_out(t: DiningTable) -> dict:
+    return {"id": t.id, "name": t.name, "seats": t.seats, "section": t.section, "sort": t.sort}
+
+
+@router.get("/floor/tables")
+def list_tables(ctx: Ctx = Depends(require("tables")), db: Session = Depends(get_db)):
+    ts = db.scalars(select(DiningTable).where(DiningTable.tenant_id == ctx.tenant_id).order_by(DiningTable.sort)).all()
+    return [table_out(t) for t in ts]
+
+
+class TableIn(BaseModel):
+    name: str = Field(min_length=1, max_length=20)
+    seats: int = Field(default=4, ge=1, le=40)
+    section: str = Field(default="Main", min_length=1, max_length=40)
+
+
+class TablePatch(BaseModel):
+    name: str | None = Field(default=None, min_length=1, max_length=20)
+    seats: int | None = Field(default=None, ge=1, le=40)
+    section: str | None = Field(default=None, min_length=1, max_length=40)
+    sort: int | None = Field(default=None, ge=0, le=10_000)
+
+
+def name_free(db: Session, ctx: Ctx, name: str, skip: str | None = None) -> None:
+    hit = db.scalar(select(DiningTable.id).where(DiningTable.tenant_id == ctx.tenant_id, func.lower(DiningTable.name) == name.lower()))
+    if hit and hit != skip:
+        raise HTTPException(409, f"There's already a table called {name}")
+
+
+@router.post("/floor/tables", status_code=201)
+def add_table(body: TableIn, ctx: Ctx = Depends(require("tables")), db: Session = Depends(get_db)):
+    name_free(db, ctx, body.name.strip())
+    n = db.scalar(select(func.max(DiningTable.sort)).where(DiningTable.tenant_id == ctx.tenant_id))
+    t = DiningTable(tenant_id=ctx.tenant_id, name=body.name.strip(), seats=body.seats, section=body.section.strip(),
+                    sort=(n or 0) + 1)
+    db.add(t)
+    db.commit()
+    return table_out(t)
+
+
+def own_table(db: Session, ctx: Ctx, tid: str) -> DiningTable:
+    t = db.scalar(select(DiningTable).where(DiningTable.id == tid, DiningTable.tenant_id == ctx.tenant_id))
+    if not t:
+        raise HTTPException(404, "Table not found")
+    return t
+
+
+@router.patch("/floor/tables/{tid}")
+def edit_table(tid: str, body: TablePatch, ctx: Ctx = Depends(require("tables")), db: Session = Depends(get_db)):
+    t = own_table(db, ctx, tid)
+    data = body.model_dump(exclude_unset=True)
+    if "name" in data:
+        data["name"] = data["name"].strip()
+        name_free(db, ctx, data["name"], skip=t.id)
+    for k, v in data.items():
+        setattr(t, k, v.strip() if isinstance(v, str) else v)
+    db.commit()
+    return table_out(t)
+
+
+@router.delete("/floor/tables/{tid}")
+def delete_table(tid: str, ctx: Ctx = Depends(require("tables")), db: Session = Depends(get_db)):
+    t = own_table(db, ctx, tid)
+    if db.scalar(select(Order.id).where(Order.tenant_id == ctx.tenant_id, Order.table_id == t.id, Order.status == "open")):
+        raise HTTPException(409, f"{t.name} has an open check. Close or move it first.")
+    db.delete(t)
+    db.commit()
+    return {"ok": True}

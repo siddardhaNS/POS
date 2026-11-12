@@ -6,12 +6,14 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from .config import settings
-from .models import DiningTable, MenuCategory, MenuItem, Tenant, User, now
+from .models import DiningTable, MenuCategory, MenuItem, ModifierGroup, ModifierOption, Tenant, User, now
 from .security import hash_secret
 
 MARKETS = {
-    "IN": {"currency": "INR", "tax_rate": Decimal("0.05"), "tax_label": "CGST 2.5% + SGST 2.5%"},
-    "US": {"currency": "USD", "tax_rate": Decimal("0.08875"), "tax_label": "Sales tax 8.875%"},
+    "IN": {"currency": "INR", "tax_rate": Decimal("0.05"), "tax_label": "CGST 2.5% + SGST 2.5%",
+           "timezone": "Asia/Kolkata", "tips_enabled": False},
+    "US": {"currency": "USD", "tax_rate": Decimal("0.08875"), "tax_label": "Sales tax 8.875%",
+           "timezone": "America/New_York", "tips_enabled": True},
 }
 
 # (name, INR price, veg, category, station)
@@ -63,7 +65,46 @@ def provision_tenant(db: Session, tenant: Tenant) -> None:
         db.add(MenuItem(tenant_id=tenant.id, category_id=cats[cat].id, name=name,
                         price=market_price(p, tenant.market), is_veg=veg, station=station, sort=i))
     for i, seats in enumerate(TABLE_SEATS):
-        db.add(DiningTable(tenant_id=tenant.id, name=f"T{i + 1}", seats=seats, sort=i))
+        db.add(DiningTable(tenant_id=tenant.id, name=f"T{i + 1}", seats=seats, sort=i,
+                           section="Main" if i < 8 else "Patio"))
+    db.flush()
+    add_starter_modifiers(db, tenant)
+
+
+# item name -> [(group, min, max, [(option, INR price delta)])]
+STARTER_MODIFIERS = {
+    "Hyderabadi Chicken Biryani": [("Spice level", 1, 1, [("Mild", 0), ("Medium", 0), ("Hot", 0)]),
+                                   ("Add-ons", 0, 3, [("Extra raita", 30), ("Boiled egg", 25), ("Extra chicken", 120)])],
+    "Veg Dum Biryani": [("Spice level", 1, 1, [("Mild", 0), ("Medium", 0), ("Hot", 0)])],
+    "Butter Chicken": [("Spice level", 1, 1, [("Mild", 0), ("Medium", 0), ("Hot", 0)]),
+                       ("Make it", 0, 1, [("Boneless", 40)])],
+    "Paneer Tikka Masala": [("Spice level", 1, 1, [("Mild", 0), ("Medium", 0), ("Hot", 0)])],
+    "Butter Naan": [("Add-ons", 0, 2, [("Extra butter", 15), ("Cheese", 40)])],
+    "Sweet Lassi": [("Size", 1, 1, [("Regular", 0), ("Large", 40)])],
+    "Fresh Lime Soda": [("Style", 1, 1, [("Sweet", 0), ("Salted", 0), ("Mixed", 0)])],
+    "Masala Chai": [("Milk", 0, 1, [("Oat milk", 30)]), ("Sugar", 1, 1, [("Regular", 0), ("Less", 0), ("None", 0)])],
+}
+
+
+def option_price(inr: int, market: str) -> Decimal:
+    if not inr:
+        return Decimal(0)
+    return Decimal(max(1, round(inr / 30))) if market == "US" else Decimal(inr)
+
+
+def add_starter_modifiers(db: Session, tenant: Tenant) -> None:
+    if db.scalar(select(ModifierGroup.id).where(ModifierGroup.tenant_id == tenant.id).limit(1)):
+        return
+    items = {m.name: m for m in db.scalars(select(MenuItem).where(MenuItem.tenant_id == tenant.id))}
+    for item_name, groups in STARTER_MODIFIERS.items():
+        m = items.get(item_name)
+        if not m:
+            continue
+        for gi, (gname, lo, hi, opts) in enumerate(groups):
+            g = ModifierGroup(tenant_id=tenant.id, menu_item_id=m.id, name=gname, min_select=lo, max_select=hi, sort=gi)
+            g.options = [ModifierOption(tenant_id=tenant.id, name=o, price=option_price(p, tenant.market), sort=oi)
+                         for oi, (o, p) in enumerate(opts)]
+            db.add(g)
 
 
 def ensure_platform_admin(db: Session) -> None:
@@ -83,7 +124,10 @@ DEMO_STAFF = [
 
 
 def ensure_demo(db: Session) -> None:
-    if db.scalar(select(Tenant).where(Tenant.slug == "tiffin-indiranagar")):
+    existing = db.scalars(select(Tenant).where(Tenant.slug.in_(("tiffin-indiranagar", "saffron-smoke")))).all()
+    if existing:
+        for t in existing:  # demo tenants created before modifiers existed
+            add_starter_modifiers(db, t)
         return
     demos = [
         ("Tiffin Indiranagar", "tiffin-indiranagar", "IN", "Vivek Shah", "owner@tiffin.in", "Bengaluru", "trial"),

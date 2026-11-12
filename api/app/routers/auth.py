@@ -20,6 +20,9 @@ def tenant_out(t: Tenant | None) -> dict | None:
     return {
         "id": t.id, "name": t.name, "slug": t.slug, "market": t.market, "currency": t.currency,
         "tax_rate": float(t.tax_rate), "tax_label": t.tax_label, "status": t.status,
+        "phone": t.phone, "city": t.city, "address": t.address, "tax_id": t.tax_id, "timezone": t.timezone,
+        "tips_enabled": t.tips_enabled, "receipt_footer": t.receipt_footer,
+        "auto_print_kot": t.auto_print_kot, "auto_print_receipt": t.auto_print_receipt,
         "trial_ends_at": t.trial_ends_at.isoformat() if t.trial_ends_at else None,
     }
 

@@ -3,7 +3,7 @@ import uuid
 from datetime import datetime, timezone
 from decimal import Decimal
 
-from sqlalchemy import Boolean, DateTime, ForeignKey, Integer, Numeric, String, Text, UniqueConstraint
+from sqlalchemy import JSON, Boolean, DateTime, ForeignKey, Integer, Numeric, String, Text, UniqueConstraint
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from .db import Base
@@ -40,6 +40,14 @@ class Tenant(Base):
     trial_ends_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     reviewed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now)
+    # Restaurant settings (owner-editable)
+    address: Mapped[str] = mapped_column(Text, default="")
+    tax_id: Mapped[str] = mapped_column(String(60), default="")
+    timezone: Mapped[str] = mapped_column(String(64), default="UTC")
+    tips_enabled: Mapped[bool] = mapped_column(Boolean, default=False)
+    receipt_footer: Mapped[str] = mapped_column(Text, default="Thank you! See you again soon.")
+    auto_print_kot: Mapped[bool] = mapped_column(Boolean, default=False)
+    auto_print_receipt: Mapped[bool] = mapped_column(Boolean, default=False)
 
 
 class User(Base):
@@ -85,6 +93,7 @@ class DiningTable(Base):
     name: Mapped[str] = mapped_column(String(20))
     seats: Mapped[int] = mapped_column(Integer, default=4)
     sort: Mapped[int] = mapped_column(Integer, default=0)
+    section: Mapped[str] = mapped_column(String(40), default="Main")
 
 
 class Order(Base):
@@ -95,9 +104,20 @@ class Order(Base):
     table_id: Mapped[str | None] = mapped_column(ForeignKey("dining_tables.id", ondelete="SET NULL"), nullable=True)
     # dine_in | takeaway | swiggy | zomato | doordash | ubereats | website
     channel: Mapped[str] = mapped_column(String(20), default="dine_in")
-    # new (online, awaiting accept) | open | paid | void | rejected
+    # new (online, awaiting accept) | open | paid | refunded | void | rejected | merged
     status: Mapped[str] = mapped_column(String(12), default="open", index=True)
     customer_name: Mapped[str] = mapped_column(String(120), default="")
+    customer_phone: Mapped[str] = mapped_column(String(40), default="")
+    guests: Mapped[int] = mapped_column(Integer, default=0)
+    # Check-level discount: kind "" | "percent" | "amount"
+    discount_kind: Mapped[str] = mapped_column(String(10), default="")
+    discount_value: Mapped[Decimal] = mapped_column(Numeric(10, 2), default=Decimal("0"))
+    discount_amount: Mapped[Decimal] = mapped_column(Numeric(12, 2), default=Decimal("0"))
+    discount_reason: Mapped[str] = mapped_column(String(120), default="")
+    # Sum of payments applied to the check (excluding tips), and of refunds given back
+    paid: Mapped[Decimal] = mapped_column(Numeric(12, 2), default=Decimal("0"))
+    refunded: Mapped[Decimal] = mapped_column(Numeric(12, 2), default=Decimal("0"))
+    void_reason: Mapped[str] = mapped_column(String(200), default="")
     subtotal: Mapped[Decimal] = mapped_column(Numeric(12, 2), default=Decimal("0"))
     tax: Mapped[Decimal] = mapped_column(Numeric(12, 2), default=Decimal("0"))
     tip: Mapped[Decimal] = mapped_column(Numeric(12, 2), default=Decimal("0"))
@@ -107,11 +127,12 @@ class Order(Base):
     opened_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now)
     closed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     items: Mapped[list["OrderItem"]] = relationship(cascade="all, delete-orphan", order_by="OrderItem.created_at")
+    payments: Mapped[list["Payment"]] = relationship(cascade="all, delete-orphan", order_by="Payment.created_at")
     table: Mapped[DiningTable | None] = relationship()
 
 
 class Kot(Base):
-    """Kitchen order ticket: a batch of order items fired to the kitchen together."""
+    """Kitchen order ticket: a batch of items fired to the kitchen together."""
 
     __tablename__ = "kots"
     id: Mapped[str] = mapped_column(String(36), primary_key=True, default=uid)
@@ -134,7 +155,79 @@ class OrderItem(Base):
     unit_price: Mapped[Decimal] = mapped_column(Numeric(10, 2))
     qty: Mapped[int] = mapped_column(Integer, default=1)
     note: Mapped[str] = mapped_column(String(200), default="")
+    # [{"group": str, "name": str, "price": float}]; unit_price already includes these
+    modifiers: Mapped[list] = mapped_column(JSON, default=list)
+    comp_reason: Mapped[str] = mapped_column(String(120), default="")
     kot_id: Mapped[str | None] = mapped_column(ForeignKey("kots.id", ondelete="SET NULL"), nullable=True)
     done: Mapped[bool] = mapped_column(Boolean, default=False)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now)
     kot: Mapped[Kot | None] = relationship(back_populates="items")
+
+
+class ModifierGroup(Base):
+    """A set of choices on a menu item, e.g. Size (pick exactly 1) or Add-ons (pick up to 3)."""
+    __tablename__ = "modifier_groups"
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=uid)
+    tenant_id: Mapped[str] = mapped_column(ForeignKey("tenants.id", ondelete="CASCADE"), index=True)
+    menu_item_id: Mapped[str] = mapped_column(ForeignKey("menu_items.id", ondelete="CASCADE"), index=True)
+    name: Mapped[str] = mapped_column(String(80))
+    min_select: Mapped[int] = mapped_column(Integer, default=0)
+    max_select: Mapped[int] = mapped_column(Integer, default=1)
+    sort: Mapped[int] = mapped_column(Integer, default=0)
+    options: Mapped[list["ModifierOption"]] = relationship(cascade="all, delete-orphan", order_by="ModifierOption.sort")
+
+
+class ModifierOption(Base):
+    __tablename__ = "modifier_options"
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=uid)
+    tenant_id: Mapped[str] = mapped_column(ForeignKey("tenants.id", ondelete="CASCADE"), index=True)
+    group_id: Mapped[str] = mapped_column(ForeignKey("modifier_groups.id", ondelete="CASCADE"), index=True)
+    name: Mapped[str] = mapped_column(String(80))
+    price: Mapped[Decimal] = mapped_column(Numeric(10, 2), default=Decimal("0"))
+    sort: Mapped[int] = mapped_column(Integer, default=0)
+
+
+class Payment(Base):
+    """One tender against a check. Refunds are rows with kind=refund (amount stays positive)."""
+    __tablename__ = "payments"
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=uid)
+    tenant_id: Mapped[str] = mapped_column(ForeignKey("tenants.id", ondelete="CASCADE"), index=True)
+    order_id: Mapped[str] = mapped_column(ForeignKey("orders.id", ondelete="CASCADE"), index=True)
+    kind: Mapped[str] = mapped_column(String(10), default="payment")  # payment | refund
+    method: Mapped[str] = mapped_column(String(20))  # cash | card | upi | tap | online | other
+    amount: Mapped[Decimal] = mapped_column(Numeric(12, 2))
+    tip: Mapped[Decimal] = mapped_column(Numeric(12, 2), default=Decimal("0"))
+    tendered: Mapped[Decimal] = mapped_column(Numeric(12, 2), default=Decimal("0"))
+    change: Mapped[Decimal] = mapped_column(Numeric(12, 2), default=Decimal("0"))
+    line_ids: Mapped[list] = mapped_column(JSON, default=list)
+    reason: Mapped[str] = mapped_column(String(200), default="")
+    user_id: Mapped[str | None] = mapped_column(ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now, index=True)
+
+
+class CashSession(Base):
+    """A cash drawer shift: opening float, then sales, then a counted close (over/short)."""
+    __tablename__ = "cash_sessions"
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=uid)
+    tenant_id: Mapped[str] = mapped_column(ForeignKey("tenants.id", ondelete="CASCADE"), index=True)
+    opened_by: Mapped[str | None] = mapped_column(ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
+    opened_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now)
+    opening_float: Mapped[Decimal] = mapped_column(Numeric(12, 2), default=Decimal("0"))
+    closed_by: Mapped[str | None] = mapped_column(ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
+    closed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    expected_cash: Mapped[Decimal] = mapped_column(Numeric(12, 2), default=Decimal("0"))
+    counted_cash: Mapped[Decimal] = mapped_column(Numeric(12, 2), default=Decimal("0"))
+    note: Mapped[str] = mapped_column(Text, default="")
+    movements: Mapped[list["CashMovement"]] = relationship(cascade="all, delete-orphan", order_by="CashMovement.created_at")
+
+
+class CashMovement(Base):
+    __tablename__ = "cash_movements"
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=uid)
+    tenant_id: Mapped[str] = mapped_column(ForeignKey("tenants.id", ondelete="CASCADE"), index=True)
+    session_id: Mapped[str] = mapped_column(ForeignKey("cash_sessions.id", ondelete="CASCADE"), index=True)
+    kind: Mapped[str] = mapped_column(String(4))  # in | out
+    amount: Mapped[Decimal] = mapped_column(Numeric(12, 2))
+    reason: Mapped[str] = mapped_column(String(200), default="")
+    user_id: Mapped[str | None] = mapped_column(ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now)

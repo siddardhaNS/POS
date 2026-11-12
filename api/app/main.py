@@ -4,13 +4,14 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from .config import settings
-from .db import Base, SessionLocal, engine
-from .routers import admin, auth, backoffice, menu_import, pos
+from .db import SessionLocal, engine
+from .migrate import migrate
+from .routers import admin, auth, backoffice, cash, menu_import, pos
 from .seed import bootstrap
 
 
 def init_db() -> None:
-    Base.metadata.create_all(engine)
+    migrate(engine)
     with SessionLocal() as db:
         bootstrap(db)
 
@@ -31,7 +32,7 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-for r in (auth.router, admin.router, pos.router, menu_import.router, backoffice.router):
+for r in (auth.router, admin.router, pos.router, cash.router, menu_import.router, backoffice.router):
     app.include_router(r)
 
 
