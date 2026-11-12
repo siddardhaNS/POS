@@ -134,3 +134,14 @@
 }
 @keyframes marquee { from { transform: translateX(0); } to { transform: translateX(-50%); } }
 @media (prefers-reduced-motion: reduce) { [class*="animate-[marquee"] { animation: none !important; } }
+
+/* Landing page motion (Tiffin 1a) */
+@keyframes lp-lineIn { 0%,4% { opacity: 0; transform: translateY(6px); } 10%,88% { opacity: 1; transform: none; } 96%,100% { opacity: 0; } }
+@keyframes lp-tap { 0%,100% { box-shadow: 0 0 0 0 rgba(236,122,44,0); transform: none; } 3% { transform: scale(.96); box-shadow: 0 0 0 3px rgba(236,122,44,.45); } 8% { transform: none; box-shadow: 0 0 0 0 rgba(236,122,44,0); } }
+@keyframes lp-floaty { 0%,100% { transform: translateY(0) rotate(var(--r,0deg)); } 50% { transform: translateY(-8px) rotate(var(--r,0deg)); } }
+@keyframes lp-livedot { 0%,100% { opacity: 1; } 50% { opacity: .25; } }
+@keyframes lp-bar { 0%,100% { transform: scaleY(.55); } 50% { transform: scaleY(1); } }
+@keyframes lp-scan { 0%,100% { top: 8%; } 50% { top: 88%; } }
+@keyframes lp-popIn { 0%,6% { opacity: 0; transform: scale(.6); } 14%,90% { opacity: 1; transform: none; } 100% { opacity: 0; } }
+@keyframes lp-fillBar { 0% { width: 0; } 85%,100% { width: 100%; } }
+@media (prefers-reduced-motion: reduce) { [style*="lp-"] { animation: none !important; } }
