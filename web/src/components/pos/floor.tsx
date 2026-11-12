@@ -24,8 +24,8 @@ export function Floor() {
   const now = useNow(15_000);
   const [view, setView] = useState<"map" | "timeline">("map");
   const [newTakeaway, setNewTakeaway] = useState(false);
-  const { data: tables } = usePoll<TableRow[]>("/tables", 5000);
-  const { data: counter } = usePoll<Order[]>("/orders/open?channel=takeaway", 5000);
+  const { data: tables } = usePoll<TableRow[]>("/tables", 5000, "floor");
+  const { data: counter } = usePoll<Order[]>("/orders/open?channel=takeaway", 5000, "floor");
   const canOrder = can(s.user, "order");
 
   async function open(t: TableRow, pay = false) {

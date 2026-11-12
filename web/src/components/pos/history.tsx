@@ -11,6 +11,7 @@ import { cn } from "@/lib/utils";
 import { printReceipt } from "./print";
 import { Empty, METHOD_LABEL, STATUS_TONE, Seg, orderTitle, payMethods, run, usePoll, usePos } from "./shared";
 import type { Order } from "./types";
+import { ActivityList, type AuditRow } from "./activity";
 
 interface Row {
   id: string; number: number; table: string | null; channel: string; status: string; customer_name: string;
@@ -40,7 +41,8 @@ export function OrdersScreen() {
   const [query, setQuery] = useState("");
   const [sel, setSel] = useState<Order | null>(null);
   const [refunding, setRefunding] = useState(false);
-  const { data: rows, reload } = usePoll<Row[]>(`/orders?day=${day}&status=${status}&q=${encodeURIComponent(query)}`, 15000);
+  const { data: activity } = usePoll<AuditRow[]>(sel && can(s.user, "reports") ? `/audit?order_id=${sel.id}` : null, 0, "audit");
+  const { data: rows, reload } = usePoll<Row[]>(`/orders?day=${day}&status=${status}&q=${encodeURIComponent(query)}`, 15000, "orders");
 
   useEffect(() => { const t = setTimeout(() => setQuery(q), 300); return () => clearTimeout(t); }, [q]);
 
@@ -131,6 +133,12 @@ export function OrdersScreen() {
                       <span className="font-mono">{p.kind === "refund" ? "−" : ""}{fmt(p.amount + p.tip)}</span>
                     </div>
                   ))}
+                </div>
+              )}
+              {!!activity?.length && (
+                <div className="border-t border-border pt-3">
+                  <div className="font-medium">Activity</div>
+                  <ActivityList rows={activity} fmt={fmt} tz={s.tenant?.timezone} compact />
                 </div>
               )}
             </div>

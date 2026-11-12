@@ -72,7 +72,7 @@ function TenantForm({ tab }: { tab: "restaurant" | "tax" | "receipts" }) {
     subtotal: 40, tax: 40 * (Number(rate) || 0) / 100, tip: 0, total: 40 * (1 + (Number(rate) || 0) / 100), due: 40 * (1 + (Number(rate) || 0) / 100),
     discount: { kind: "", value: 0, amount: 0, reason: "" }, paid: 40 * (1 + (Number(rate) || 0) / 100), refunded: 0, balance: 0, payment_method: "card", void_reason: "",
     opened_at: new Date().toISOString(), closed_at: new Date().toISOString(),
-    items: [{ id: "a", menu_item_id: null, name: "Sample dish", unit_price: 20, qty: 2, note: "", modifiers: [], comp_reason: "", line_total: 40, sent: true, done: true, paid: true }],
+    items: [{ id: "a", menu_item_id: null, name: "Sample dish", unit_price: 20, qty: 2, note: "", modifiers: [], comp_reason: "", line_total: 40, sent: true, done: true, paid: true, course: 1, seat: 0, station: "" }],
     payments: [{ id: "p", kind: "payment", method: "card", amount: 40 * (1 + (Number(rate) || 0) / 100), tip: 0, tendered: 0, change: 0, reason: "", line_ids: [], created_at: new Date().toISOString() }],
   };
 

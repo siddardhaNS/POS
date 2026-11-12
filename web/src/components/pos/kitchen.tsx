@@ -2,47 +2,85 @@
 
 import { useState } from "react";
 import { toast } from "sonner";
-import { Bike, Check, Plus } from "lucide-react";
+import { Bike, Check, Plus, RotateCcw } from "lucide-react";
 import { api } from "@/lib/api";
 import { cn } from "@/lib/utils";
 import type { Category, Order } from "./types";
 import { Seg, clock, run, useNow, usePoll, usePos } from "./shared";
 
-interface Ticket { id: string; number: number; created_at: string; title: string; channel: string; items: { id: string; name: string; qty: number; note: string; done: boolean; modifiers: string[] }[] }
+interface TicketItem { id: string; name: string; qty: number; note: string; done: boolean; modifiers: string[]; seat: number; station: string }
+interface Ticket { id: string; number: number; created_at: string; bumped_at: string | null; title: string; channel: string; course: number; items: TicketItem[] }
+
+const STATION_KEY = "tiffin.kds.station";
 
 export function Kitchen() {
   const now = useNow();
   const [view, setView] = useState<"ticket" | "dish">("ticket");
-  const { data: tickets, reload, setData } = usePoll<Ticket[]>("/kds", 4000);
+  const [station, setStationState] = useState<string>(() => {
+    try { return localStorage.getItem(STATION_KEY) ?? ""; } catch { return ""; }
+  });
+  const [recallOpen, setRecallOpen] = useState(false);
+  const q = station ? `?station=${encodeURIComponent(station)}` : "";
+  const { data: tickets, reload, setData } = usePoll<Ticket[]>(`/kds${q}`, 4000, "kds");
+  const { data: stations } = usePoll<string[]>("/kds/stations", 0, "menu");
+  const { data: recent, reload: reloadRecent } = usePoll<Ticket[]>(recallOpen ? `/kds/recent${q}` : null, 0, "kds");
 
-  async function toggle(t: Ticket, i: Ticket["items"][number]) {
+  function setStation(v: string) {
+    setStationState(v);
+    try { localStorage.setItem(STATION_KEY, v); } catch { /* private mode */ }
+  }
+  async function toggle(t: Ticket, i: TicketItem) {
     setData((d) => d && d.map((x) => x.id === t.id ? { ...x, items: x.items.map((y) => y.id === i.id ? { ...y, done: !y.done } : y) } : x));
     await run(api(`/kds/items/${i.id}/toggle`, { method: "POST" }));
   }
   async function bump(t: Ticket) {
     setData((d) => d && d.filter((x) => x.id !== t.id));
-    if (await run(api(`/kds/${t.id}/bump`, { method: "POST" }))) toast.success(`${t.title} sent to the pass`);
+    const r = await run(api<{ bumped: boolean }>(`/kds/${t.id}/bump${q}`, { method: "POST" }));
+    if (r) toast.success(r.bumped ? `${t.title} sent to the pass` : `${station} done · ${t.title} still on other stations`);
     reload();
+  }
+  async function recall(t: Ticket) {
+    if (await run(api(`/kds/${t.id}/recall${q}`, { method: "POST" }), `${t.title} recalled`)) { reload(); reloadRecent(); setRecallOpen(false); }
   }
 
   const age = (t: Ticket) => (now - new Date(t.created_at).getTime()) / 60000;
-  const dishes = Object.values((tickets ?? []).reduce<Record<string, { n: string; q: number; from: string[]; t: number; ids: [Ticket, Ticket["items"][number]][] }>>((acc, t) => {
+  const dishes = Object.values((tickets ?? []).reduce<Record<string, { n: string; q: number; from: string[]; t: number; ids: [Ticket, TicketItem][] }>>((acc, t) => {
     t.items.filter((i) => !i.done).forEach((i) => {
       const a = (acc[i.name] ??= { n: i.name, q: 0, from: [], t: Infinity, ids: [] });
       a.q += i.qty; a.from.push(t.title.split(" · ")[0]); a.t = Math.min(a.t, new Date(t.created_at).getTime()); a.ids.push([t, i]);
     });
     return acc;
   }, {})).sort((a, b) => a.t - b.t);
+  const allDay = [...dishes].sort((a, b) => b.q - a.q).slice(0, 8);
 
   return (
-    <div className="flex h-full flex-col gap-5 overflow-auto bg-[#151513] p-5 text-[#f2f0ea] md:p-7">
-      <div className="flex flex-wrap items-center gap-4">
+    <div className="flex h-full flex-col gap-4 overflow-auto bg-[#151513] p-5 text-[#f2f0ea] md:p-7">
+      <div className="flex flex-wrap items-center gap-3">
         <Seg dark value={view} onChange={setView} options={[["ticket", "By ticket"], ["dish", "By dish"]]} />
-        <span className="text-sm text-[#b8b4aa]">{view === "ticket" ? "Tap an item to mark it done · Bump when the ticket is complete" : "Everything still to cook, oldest first"}</span>
-        <span className="ml-auto font-mono text-sm text-[#b8b4aa]">{tickets?.length ?? 0} open</span>
+        <div className="flex max-w-full gap-1 overflow-x-auto rounded-xl bg-white/[0.08] p-1">
+          {["", ...(stations ?? [])].map((st) => (
+            <button key={st || "all"} onClick={() => setStation(st)}
+              className={cn("shrink-0 rounded-lg px-3 py-1.5 text-[13px] font-medium transition", station === st ? "bg-[#f2f0ea] text-[#151513]" : "text-[#b8b4aa]")}>
+              {st || "All stations"}
+            </button>
+          ))}
+        </div>
+        <button onClick={() => setRecallOpen(true)} className="ml-auto flex items-center gap-1.5 rounded-xl bg-white/[0.08] px-3.5 py-2 text-sm font-medium">
+          <RotateCcw className="size-4" />Recall
+        </button>
+        <span className="font-mono text-sm text-[#b8b4aa]">{tickets?.length ?? 0} open</span>
       </div>
 
-      {tickets && tickets.length === 0 && <div className="grid flex-1 place-items-center text-[#8a867d]">All caught up. No open tickets.</div>}
+      {allDay.length > 0 && (
+        <div className="flex gap-2 overflow-x-auto pb-1">
+          <span className="shrink-0 self-center font-mono text-[11px] uppercase tracking-[0.08em] text-[#8a867d]">All day</span>
+          {allDay.map((d) => (
+            <span key={d.n} className="shrink-0 rounded-lg bg-white/[0.06] px-3 py-1.5 text-sm"><b className="font-mono">{d.q}</b> {d.n}</span>
+          ))}
+        </div>
+      )}
+
+      {tickets && tickets.length === 0 && <div className="grid flex-1 place-items-center text-[#8a867d]">All caught up{station ? ` on ${station}` : ""}. No open tickets.</div>}
 
       {view === "ticket" ? (
         <div className="grid auto-rows-min grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3 2xl:grid-cols-4">
@@ -54,7 +92,7 @@ export function Kitchen() {
                 <div className={cn("flex items-center justify-between px-4 py-3", head)}>
                   <div>
                     <div className="font-semibold">{t.title}</div>
-                    <div className="text-xs opacity-70">KOT {t.number}</div>
+                    <div className="text-xs opacity-70">KOT {t.number}{t.course ? ` · course ${t.course}` : ""}</div>
                   </div>
                   <span className="font-mono text-lg font-semibold">{clock(now - new Date(t.created_at).getTime())}</span>
                 </div>
@@ -63,13 +101,17 @@ export function Kitchen() {
                     <button key={i.id} onClick={() => toggle(t, i)} className={cn("flex w-full items-center gap-3 py-3 text-left transition", i.done && "opacity-40")}>
                       <span className="font-mono text-lg font-semibold">{i.qty}</span>
                       <span className={cn("flex-1 text-[15px]", i.done && "line-through")}>{i.name}
+                        {i.seat > 0 && <span className="ml-1.5 rounded bg-white/10 px-1 font-mono text-[11px]">S{i.seat}</span>}
+                        {!station && i.station && <span className="ml-1.5 text-[11px] text-[#8a867d]">{i.station}</span>}
                         {i.modifiers.length > 0 && <span className="block text-xs text-[#d8d3c8]">+ {i.modifiers.join(" · ")}</span>}
                         {i.note && <span className="block text-xs text-saffron">{i.note}</span>}</span>
                       {i.done && <Check className="size-4 text-leaf" />}
                     </button>
                   ))}
                 </div>
-                <button onClick={() => bump(t)} className="m-3 h-12 rounded-xl bg-[#f2f0ea] font-semibold text-[#151513] transition active:scale-[0.98]">Bump</button>
+                <button onClick={() => bump(t)} className="m-3 h-12 rounded-xl bg-[#f2f0ea] font-semibold text-[#151513] transition active:scale-[0.98]">
+                  {station ? `Bump ${station}` : "Bump"}
+                </button>
               </div>
             );
           })}
@@ -95,6 +137,28 @@ export function Kitchen() {
           })}
         </div>
       )}
+
+      {recallOpen && (
+        <div className="fixed inset-0 z-50 flex justify-end bg-black/50" onClick={() => setRecallOpen(false)}>
+          <div onClick={(e) => e.stopPropagation()} className="flex h-full w-full max-w-sm flex-col gap-3 overflow-y-auto bg-[#1d1c1a] p-5">
+            <div className="flex items-center justify-between">
+              <div className="text-lg font-semibold">Recently bumped{station ? ` · ${station}` : ""}</div>
+              <button onClick={() => setRecallOpen(false)} className="text-[#b8b4aa]">Close</button>
+            </div>
+            {recent?.length === 0 && <p className="text-sm text-[#8a867d]">Nothing bumped yet.</p>}
+            {recent?.map((t) => (
+              <div key={t.id} className="rounded-2xl bg-[#232220] p-4">
+                <div className="flex items-center justify-between">
+                  <span className="font-semibold">{t.title}</span>
+                  <span className="font-mono text-xs text-[#8a867d]">KOT {t.number}</span>
+                </div>
+                <div className="mt-1 text-sm text-[#b8b4aa]">{t.items.map((i) => `${i.qty}× ${i.name}`).join(" · ")}</div>
+                <button onClick={() => recall(t)} className="mt-3 h-10 w-full rounded-xl bg-[#f2f0ea] text-sm font-semibold text-[#151513]">Recall to screen</button>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
     </div>
   );
 }
@@ -105,8 +169,8 @@ export function Online() {
   const { s, fmt } = usePos();
   const now = useNow();
   const market = s.tenant?.market ?? "IN";
-  const { data: orders, reload } = usePoll<(Order & { opened_at: string; customer_name: string })[]>("/online", 4000);
-  const { data: menu } = usePoll<Category[]>("/menu", 0);
+  const { data: orders, reload } = usePoll<(Order & { opened_at: string; customer_name: string })[]>("/online", 4000, "online");
+  const { data: menu } = usePoll<Category[]>("/menu", 0, "menu");
   const [busy, setBusy] = useState(false);
   const label = (c: string) => CHANNELS[market].find(([k]) => k === c)?.[1] ?? c;
 

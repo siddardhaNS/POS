@@ -10,6 +10,7 @@ export interface Modifier { group: string; name: string; price: number }
 export interface Line {
   id: string; menu_item_id: string | null; name: string; unit_price: number; qty: number; note: string;
   modifiers: Modifier[]; comp_reason: string; line_total: number; sent: boolean; done: boolean; paid: boolean;
+  course: number; seat: number; station: string;
 }
 export interface PaymentRow {
   id: string; kind: "payment" | "refund"; method: string; amount: number; tip: number; tendered: number; change: number;
@@ -30,4 +31,7 @@ export interface TableRow {
   kitchen_since: string | null; opened_at: string | null;
 }
 
-export interface KotPrint { kot_number: number; created_at: string; items: { name: string; qty: number; note: string; modifiers: Modifier[] }[] }
+export interface KotPrint {
+  kot_number: number; created_at: string; course: number;
+  items: { name: string; qty: number; note: string; modifiers: Modifier[]; seat: number; course: number }[];
+}

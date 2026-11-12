@@ -5,7 +5,7 @@ import { toast } from "sonner";
 import { api, money, type Session, type Tenant } from "@/lib/api";
 import { cn } from "@/lib/utils";
 
-export type Screen = "floor" | "order" | "orders" | "cash" | "online" | "kds" | "dash" | "menu" | "staff" | "settings";
+export type Screen = "floor" | "order" | "orders" | "cash" | "online" | "kds" | "dash" | "menu" | "staff" | "settings" | "audit";
 
 export interface PosCtx {
   s: Session;
@@ -46,11 +46,65 @@ export const usePos = () => {
 
 export const useFmt = (s: Session) => useCallback((v: number) => money(v, s.tenant), [s.tenant]);
 
-/** Fetch + poll an endpoint while the screen is mounted (live floor / KDS / online queue). */
-export function usePoll<T>(path: string | null, ms = 5000) {
+/* ---------- Live updates ---------- */
+
+export type Topic = "floor" | "orders" | "online" | "kds" | "cash" | "menu" | "audit";
+export type Revs = Partial<Record<Topic, number>>;
+export const Live = createContext<Revs>({});
+
+/** Poll the tiny /live change feed every ~2s while the tab is visible. */
+export function useLiveFeed(enabled: boolean) {
+  const [revs, setRevs] = useState<Revs>({});
+  useEffect(() => {
+    if (!enabled) return;
+    let stop = false;
+    let timer: ReturnType<typeof setTimeout>;
+    const tick = async () => {
+      if (!document.hidden) {
+        try {
+          const r = await api<Revs>("/live");
+          if (!stop) setRevs((cur) => (JSON.stringify(cur) === JSON.stringify(r) ? cur : r));
+        } catch { /* offline or locked: keep last revs */ }
+      }
+      if (!stop) timer = setTimeout(tick, 2000);
+    };
+    tick();
+    const wake = () => { if (!document.hidden) { clearTimeout(timer); tick(); } };
+    document.addEventListener("visibilitychange", wake);
+    return () => { stop = true; clearTimeout(timer); document.removeEventListener("visibilitychange", wake); };
+  }, [enabled]);
+  return revs;
+}
+
+/** Short two-note chime for new orders / tickets (Web Audio, no asset needed). */
+export function chime() {
+  try {
+    const AC = window.AudioContext ?? (window as unknown as { webkitAudioContext: typeof AudioContext }).webkitAudioContext;
+    const ctx = new AC();
+    [880, 1320].forEach((f, i) => {
+      const o = ctx.createOscillator(), g = ctx.createGain();
+      o.frequency.value = f;
+      o.connect(g); g.connect(ctx.destination);
+      const t = ctx.currentTime + i * 0.16;
+      g.gain.setValueAtTime(0.0001, t);
+      g.gain.exponentialRampToValueAtTime(0.25, t + 0.02);
+      g.gain.exponentialRampToValueAtTime(0.0001, t + 0.3);
+      o.start(t); o.stop(t + 0.32);
+    });
+    setTimeout(() => ctx.close(), 900);
+  } catch { /* audio blocked until the first tap; ignore */ }
+}
+
+/**
+ * Fetch an endpoint while the screen is mounted. With a topic it refetches as soon as that topic changes
+ * on the live feed, and `ms` is only a slow safety net.
+ */
+export function usePoll<T>(path: string | null, ms = 5000, topic?: Topic | Topic[]) {
   const [data, setData] = useState<T | null>(null);
   const [error, setError] = useState<string | null>(null);
   const alive = useRef(true);
+  const revs = useContext(Live);
+  const key = topic ? (Array.isArray(topic) ? topic : [topic]).map((t) => revs[t] ?? 0).join(".") : "";
   const load = useCallback(async () => {
     if (!path) return;
     try {
@@ -63,10 +117,17 @@ export function usePoll<T>(path: string | null, ms = 5000) {
   useEffect(() => {
     alive.current = true;
     load();
-    if (!ms) return () => { alive.current = false; };
-    const t = setInterval(load, ms);
+    const every = topic && ms ? Math.max(ms, 30_000) : ms;
+    if (!every) return () => { alive.current = false; };
+    const t = setInterval(load, every);
     return () => { alive.current = false; clearInterval(t); };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [load, ms]);
+  const first = useRef(true);
+  useEffect(() => {
+    if (first.current) { first.current = false; return; }
+    if (key) load();
+  }, [key, load]);
   return { data, error, reload: load, setData };
 }
 

@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useContext, useEffect, useMemo, useState } from "react";
 import { toast } from "sonner";
 import {
   ArrowLeft, ArrowRightLeft, Ban, Banknote, Check, ChefHat, CircleCheck, CreditCard, Gift, Merge, Minus, MoreHorizontal, Percent,
@@ -12,7 +12,7 @@ import { Label } from "@/components/ui/label";
 import { api, can } from "@/lib/api";
 import { cn } from "@/lib/utils";
 import { printKot, printReceipt } from "./print";
-import { Empty, METHOD_LABEL, Seg, VegDot, orderTitle, payMethods, round2, run, usePoll, usePos } from "./shared";
+import { Empty, Live, METHOD_LABEL, Seg, VegDot, orderTitle, payMethods, round2, run, usePoll, usePos } from "./shared";
 import type { Category, KotPrint, Line, MenuItem, Order, TableRow } from "./types";
 
 export type { Category, MenuItem, Order } from "./types";
@@ -46,7 +46,7 @@ const big = "h-12 w-full rounded-xl font-semibold transition disabled:opacity-40
 
 export function OrderScreen() {
   const { s, fmt, go, orderId, payNow } = usePos();
-  const { data: menu } = usePoll<Category[]>("/menu", 0);
+  const { data: menu } = usePoll<Category[]>("/menu", 0, "menu");
   const [order, setOrder] = useState<Order | null>(null);
   const [cat, setCat] = useState<string | null>(null);
   const [q, setQ] = useState("");
@@ -55,11 +55,14 @@ export function OrderScreen() {
   const [line, setLine] = useState<Line | null>(null);
   const [dialog, setDialog] = useState<null | "discount" | "move" | "merge" | "guests" | "void">(null);
   const [more, setMore] = useState(false);
+  const [course, setCourse] = useState(1);
+  const [seat, setSeat] = useState(0);
+  const ordersRev = useContext(Live).orders;
 
   useEffect(() => {
     if (!orderId) return;
     api<Order>(`/orders/${orderId}`).then(setOrder).catch((e) => toast.error(e.message));
-  }, [orderId]);
+  }, [orderId, ordersRev]); // refetch when another device changes checks
 
   useEffect(() => { if (menu && !cat) setCat(menu.find((c) => c.name === "Mains")?.id ?? menu[0]?.id ?? null); }, [menu, cat]);
 
@@ -75,6 +78,8 @@ export function OrderScreen() {
   const open = order.status === "open";
   const qtyOf = (id: string) => order.items.filter((l) => l.menu_item_id === id).reduce((a, l) => a + l.qty, 0);
   const unsent = order.items.filter((l) => !l.sent).reduce((a, l) => a + l.qty, 0);
+  const courses = [...new Set(order.items.map((l) => l.course))].sort();
+  const seatCount = Math.max(order.guests || 0, 4, ...order.items.map((l) => l.seat));
   const canPay = can(s.user, "pay");
   const canDiscount = can(s.user, "discount");
   const title = orderTitle(order);
@@ -82,15 +87,15 @@ export function OrderScreen() {
   async function add(m: MenuItem, extra?: { modifier_ids: string[]; qty: number; note: string }) {
     if (!m.available) return toast.error(`${m.name} is out of stock`);
     if (!extra && m.modifiers.length) return setCustom(m);
-    const o = await run(api<Order>(`/orders/${order!.id}/items`, { body: { menu_item_id: m.id, ...extra } }));
+    const o = await run(api<Order>(`/orders/${order!.id}/items`, { body: { menu_item_id: m.id, course, seat, ...extra } }));
     if (o) { setOrder(o); setCustom(null); }
   }
-  async function sendKot() {
+  async function sendKot(c?: number) {
     if (!unsent) return;
-    const r = await run(api<KotPrint & { order: Order }>(`/orders/${order!.id}/kot`, { method: "POST" }));
+    const r = await run(api<KotPrint & { order: Order }>(`/orders/${order!.id}/kot`, c ? { body: { course: c } } : { method: "POST" }));
     if (!r) return;
     setOrder(r.order);
-    toast.success(`KOT ${r.kot_number} sent to kitchen · ${title}`);
+    toast.success(`KOT ${r.kot_number} ${c ? `· course ${c} fired` : "sent to kitchen"} · ${title}`);
     if (s.tenant?.auto_print_kot) printKot(r, title);
   }
 
@@ -181,15 +186,50 @@ export function OrderScreen() {
           )}
         </div>
 
+        {open && (
+          <div className="flex flex-wrap items-center gap-x-4 gap-y-2 border-b border-border px-5 py-2.5 text-xs">
+            <div className="flex items-center gap-1.5">
+              <span className="text-muted-foreground">Course</span>
+              {[1, 2, 3].map((c) => (
+                <button key={c} onClick={() => setCourse(c)} className={cn("grid size-7 place-items-center rounded-lg font-mono font-semibold", course === c ? "bg-foreground text-background" : "bg-muted")}>{c}</button>
+              ))}
+            </div>
+            <div className="flex min-w-0 items-center gap-1.5 overflow-x-auto">
+              <span className="text-muted-foreground">Seat</span>
+              <button onClick={() => setSeat(0)} className={cn("h-7 rounded-lg px-2 font-semibold", seat === 0 ? "bg-foreground text-background" : "bg-muted")}>All</button>
+              {Array.from({ length: seatCount }, (_, i) => i + 1).map((n) => (
+                <button key={n} onClick={() => setSeat(n)} className={cn("grid size-7 shrink-0 place-items-center rounded-lg font-mono font-semibold", seat === n ? "bg-foreground text-background" : "bg-muted")}>{n}</button>
+              ))}
+            </div>
+          </div>
+        )}
         <div className="min-h-32 flex-1 overflow-y-auto px-5">
           {order.items.length === 0 ? (
-            <Empty>Tap dishes on the left to add them to this check.</Empty>
+            <Empty>Tap dishes on the left to add them to this check. New items go to course {course}{seat ? `, seat ${seat}` : ""}.</Empty>
           ) : (
-            order.items.map((l) => (
+            courses.map((c) => {
+              const lines = order.items.filter((l) => l.course === c);
+              const waiting = lines.filter((l) => !l.sent).reduce((a, l) => a + l.qty, 0);
+              const fired = lines.some((l) => l.sent);
+              return (
+                <div key={c}>
+                  {courses.length > 1 && (
+                    <div className="flex items-center justify-between pb-1 pt-3">
+                      <span className="font-mono text-[11px] uppercase tracking-[0.08em] text-muted-foreground">Course {c}{fired && !waiting ? " · fired" : waiting && !fired ? " · held" : ""}</span>
+                      {open && waiting > 0 && (
+                        <button onClick={() => sendKot(c)} className="flex items-center gap-1 rounded-lg bg-saffron/20 px-2.5 py-1 text-xs font-semibold text-saffron-deep">
+                          <ChefHat className="size-3.5" />Fire course {c} · {waiting}
+                        </button>
+                      )}
+                    </div>
+                  )}
+                  {lines.map((l) => (
               <button key={l.id} onClick={() => open && setLine(l)} className={cn("flex w-full items-start gap-3 border-b border-border/60 py-3 text-left", l.sent && "opacity-70")}>
                 <span className="mt-0.5 grid size-7 shrink-0 place-items-center rounded-lg bg-muted font-mono text-xs font-semibold">{l.qty}</span>
                 <div className="min-w-0 flex-1">
-                  <div className={cn("text-[14.5px] font-medium", l.comp_reason && "line-through decoration-muted-foreground/60")}>{l.name}</div>
+                  <div className={cn("text-[14.5px] font-medium", l.comp_reason && "line-through decoration-muted-foreground/60")}>
+                    {l.name}{l.seat > 0 && <span className="ml-1.5 rounded bg-muted px-1 font-mono text-[11px] font-semibold text-muted-foreground">S{l.seat}</span>}
+                  </div>
                   {l.modifiers.length > 0 && <div className="text-xs text-saffron-deep">{l.modifiers.map((m) => m.name).join(" · ")}</div>}
                   {l.note && <div className="text-xs italic text-muted-foreground">“{l.note}”</div>}
                   <div className="mt-0.5 flex flex-wrap gap-1.5 text-[11px]">
@@ -200,7 +240,10 @@ export function OrderScreen() {
                 </div>
                 <span className="w-20 text-right font-mono text-sm tabular">{l.comp_reason ? "—" : fmt(l.line_total)}</span>
               </button>
-            ))
+                  ))}
+                </div>
+              );
+            })
           )}
         </div>
 
@@ -216,9 +259,9 @@ export function OrderScreen() {
         </div>
         {open ? (
           <div className="grid grid-cols-2 gap-2.5 px-5 pb-5">
-            <button onClick={sendKot} disabled={!unsent}
+            <button onClick={() => sendKot()} disabled={!unsent}
               className="flex h-14 items-center justify-center gap-2 rounded-2xl bg-muted font-semibold transition disabled:opacity-35">
-              <ChefHat className="size-5" />{unsent ? `Send KOT · ${unsent}` : "Nothing to send"}
+              <ChefHat className="size-5" />{unsent ? `${courses.length > 1 ? "Send all" : "Send KOT"} · ${unsent}` : "Nothing to send"}
             </button>
             <button disabled={!order.items.length}
               onClick={() => (canPay ? setPaying(true) : (printReceipt(order, s.tenant, fmt, "bill"), toast.success(`Bill printed for ${title}`)))}
@@ -232,7 +275,7 @@ export function OrderScreen() {
       </aside>
 
       {custom && <ModifierDialog item={custom} onClose={() => setCustom(null)} onAdd={(x) => add(custom, x)} />}
-      {line && <LineDialog order={order} line={line} canDiscount={canDiscount} onClose={() => setLine(null)} onUpdate={(o) => { setOrder(o); setLine(null); }} />}
+      {line && <LineDialog order={order} line={line} seats={seatCount} canDiscount={canDiscount} onClose={() => setLine(null)} onUpdate={(o) => { setOrder(o); setLine(null); }} />}
       {dialog === "discount" && <DiscountDialog order={order} onClose={() => setDialog(null)} onUpdate={(o) => { setOrder(o); setDialog(null); }} />}
       {dialog === "guests" && <GuestsDialog order={order} onClose={() => setDialog(null)} onUpdate={(o) => { setOrder(o); setDialog(null); }} />}
       {(dialog === "move" || dialog === "merge") && (
@@ -318,18 +361,22 @@ function ModifierDialog({ item, onClose, onAdd }: { item: MenuItem; onClose: () 
 
 /* ---------- Line actions ---------- */
 
-function LineDialog({ order, line, canDiscount, onClose, onUpdate }: {
-  order: Order; line: Line; canDiscount: boolean; onClose: () => void; onUpdate: (o: Order) => void;
+function LineDialog({ order, line, seats, canDiscount, onClose, onUpdate }: {
+  order: Order; line: Line; seats: number; canDiscount: boolean; onClose: () => void; onUpdate: (o: Order) => void;
 }) {
   const { fmt } = usePos();
   const [qty, setQty] = useState(line.qty);
   const [note, setNote] = useState(line.note);
+  const [seat, setSeat] = useState(line.seat);
+  const [course, setCourse] = useState(line.course);
   const [reason, setReason] = useState("");
 
   async function save() {
     const body: Record<string, unknown> = {};
     if (qty !== line.qty) body.qty = qty;
     if (!line.sent && note !== line.note) body.note = note;
+    if (seat !== line.seat) body.seat = seat;
+    if (!line.sent && course !== line.course) body.course = course;
     if (!Object.keys(body).length) return onClose();
     const o = await run(api<Order>(`/orders/${order.id}/items/${line.id}`, { method: "PATCH", body }));
     if (o) onUpdate(o);
@@ -353,6 +400,26 @@ function LineDialog({ order, line, canDiscount, onClose, onUpdate }: {
           </DialogDescription>
         </DialogHeader>
         <div className="flex items-center justify-between"><Label>Quantity</Label><Stepper value={qty} onChange={setQty} min={1} /></div>
+        <div className="space-y-2">
+          <Label>Seat</Label>
+          <div className="flex flex-wrap gap-1.5">
+            {[0, ...Array.from({ length: seats + 1 }, (_, i) => i + 1)].map((n) => (
+              <button key={n} type="button" onClick={() => setSeat(n)}
+                className={cn("h-9 min-w-9 rounded-lg px-2 font-mono text-sm font-semibold ring-1 ring-border", seat === n ? "bg-foreground text-background ring-foreground" : "bg-card")}>{n || "Table"}</button>
+            ))}
+          </div>
+        </div>
+        {!line.sent && (
+          <div className="flex items-center justify-between">
+            <Label>Course</Label>
+            <div className="flex gap-1.5">
+              {[1, 2, 3, 4].map((c) => (
+                <button key={c} type="button" onClick={() => setCourse(c)}
+                  className={cn("size-9 rounded-lg font-mono font-semibold ring-1 ring-border", course === c ? "bg-foreground text-background ring-foreground" : "bg-card")}>{c}</button>
+              ))}
+            </div>
+          </div>
+        )}
         {!line.sent && (
           <div className="space-y-2">
             <Label>Note for the kitchen</Label>
@@ -459,7 +526,7 @@ function GuestsDialog({ order, onClose, onUpdate }: { order: Order; onClose: () 
 
 function TablePicker({ mode, order, onClose, onUpdate }: { mode: "move" | "merge"; order: Order; onClose: () => void; onUpdate: (o: Order) => void }) {
   const { fmt } = usePos();
-  const { data: tables } = usePoll<TableRow[]>("/tables", 0);
+  const { data: tables } = usePoll<TableRow[]>("/tables", 0, "floor");
   const { data: counter } = usePoll<Order[]>(mode === "merge" ? "/orders/open?channel=takeaway" : null, 0);
   const free = (tables ?? []).filter((t) => t.state === "free" && !t.order_id);
   const others = [
@@ -546,7 +613,8 @@ function PayPanel({ order, title, onBack, onUpdate, onDone }: {
   const { s, fmt } = usePos();
   const tipsOn = !!s.tenant?.tips_enabled;
   const methods = payMethods(s.tenant);
-  const [mode, setMode] = useState<"full" | "equal" | "items" | "custom">("full");
+  const [mode, setMode] = useState<"full" | "equal" | "seat" | "items" | "custom">("full");
+  const [paySeat, setPaySeat] = useState<number | null>(null);
   const [parts, setParts] = useState(2);
   const [sel, setSel] = useState<Set<string>>(new Set());
   const [custom, setCustom] = useState("");
@@ -557,12 +625,13 @@ function PayPanel({ order, title, onBack, onUpdate, onDone }: {
   const [done, setDone] = useState<Order | null>(null);
 
   const unpaid = order.items.filter((l) => !l.paid && !l.comp_reason);
+  const seatsUsed = order.items.some((l) => l.seat > 0) ? [...new Set(order.items.map((l) => l.seat))].sort((a, b) => a - b) : [];
   const ratio = order.subtotal ? order.due / order.subtotal : 1;
   let amount = order.balance;
   if (mode === "equal") {
     amount = Math.min(order.balance, round2(order.due / parts));
     if (order.balance - amount < 0.05) amount = order.balance;
-  } else if (mode === "items") {
+  } else if (mode === "items" || mode === "seat") {
     const allSel = unpaid.length > 0 && unpaid.every((l) => sel.has(l.id));
     amount = allSel ? order.balance : Math.min(order.balance, round2(unpaid.filter((l) => sel.has(l.id)).reduce((a, l) => a + l.line_total, 0) * ratio));
   } else if (mode === "custom") {
@@ -577,7 +646,7 @@ function PayPanel({ order, title, onBack, onUpdate, onDone }: {
   async function complete() {
     setBusy(true);
     const r = await run(api<Order>(`/orders/${order.id}/payments`, {
-      body: { method, amount, tip, tendered: method === "cash" ? cash : 0, line_ids: mode === "items" ? [...sel] : [] },
+      body: { method, amount, tip, tendered: method === "cash" ? cash : 0, line_ids: mode === "items" || mode === "seat" ? [...sel] : [] },
     }));
     setBusy(false);
     if (!r) return;
@@ -629,12 +698,30 @@ function PayPanel({ order, title, onBack, onUpdate, onDone }: {
 
         <div>
           <div className="mb-2.5 text-sm font-medium">How is this being paid?</div>
-          <Seg value={mode} onChange={setMode} options={[["full", "Full balance"], ["equal", "Split evenly"], ["items", "By item"], ["custom", "Custom amount"]]} />
+          <div className="overflow-x-auto">
+            <Seg value={mode} onChange={(m) => { setMode(m); setSel(new Set()); setPaySeat(null); }}
+              options={[["full", "Full balance"], ["equal", "Split evenly"], ...(seatsUsed.length ? [["seat", "By seat"] as ["seat", string]] : []), ["items", "By item"], ["custom", "Custom"]]} />
+          </div>
           <div className="mt-4">
             {mode === "equal" && (
               <div className="flex flex-wrap items-center gap-4">
                 <Stepper value={parts} onChange={setParts} min={2} max={20} />
                 <span className="text-sm text-muted-foreground">{parts} guests · {fmt(round2(order.due / parts))} each</span>
+              </div>
+            )}
+            {mode === "seat" && (
+              <div className="flex flex-wrap gap-2">
+                {seatsUsed.map((n) => {
+                  const lines = unpaid.filter((l) => l.seat === n);
+                  return (
+                    <button key={n} disabled={!lines.length} onClick={() => { setPaySeat(n); setSel(new Set(lines.map((l) => l.id))); }}
+                      className={cn("flex h-16 min-w-24 flex-col items-center justify-center rounded-2xl px-4 ring-1 ring-border disabled:opacity-35",
+                        paySeat === n ? "bg-foreground text-background ring-foreground" : "bg-card")}>
+                      <span className="font-semibold">{n ? `Seat ${n}` : "Shared"}</span>
+                      <span className="font-mono text-xs opacity-70">{lines.length ? fmt(round2(lines.reduce((a, l) => a + l.line_total, 0) * ratio)) : "paid"}</span>
+                    </button>
+                  );
+                })}
               </div>
             )}
             {mode === "items" && (

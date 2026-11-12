@@ -1,30 +1,32 @@
 "use client";
 
 import { useRouter } from "next/navigation";
-import { useCallback, useEffect, useMemo, useState } from "react";
-import { BarChart3, Bike, ChefHat, History, LayoutGrid, Lock, Menu as MenuIcon, ReceiptText, Settings, UtensilsCrossed, Users, Wallet, X } from "lucide-react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { Activity, BarChart3, Bike, ChefHat, History, LayoutGrid, Lock, Menu as MenuIcon, ReceiptText, Settings, UtensilsCrossed, Users, Wallet, X } from "lucide-react";
 import { Dashboard, MenuAdmin, Staff } from "@/components/pos/backoffice";
 import { CashScreen } from "@/components/pos/cash";
 import { OrdersScreen } from "@/components/pos/history";
 import { SettingsScreen } from "@/components/pos/settings";
+import { ActivityScreen } from "@/components/pos/activity";
 import { Floor } from "@/components/pos/floor";
 import { Kitchen, Online } from "@/components/pos/kitchen";
 import { LockScreen } from "@/components/pos/lock-screen";
 import { OrderScreen } from "@/components/pos/order";
-import { Pos, type Screen, useFmt, usePoll } from "@/components/pos/shared";
+import { Live, Pos, type Screen, chime, useFmt, useLiveFeed, usePoll } from "@/components/pos/shared";
 import { can, session, type Session, type Tenant } from "@/lib/api";
 import { cn } from "@/lib/utils";
 
 const MODULES: { k: Screen; l: string; perm: string; group: "SERVICE" | "MANAGE"; icon: React.ComponentType<{ className?: string }> }[] = [
   { k: "floor", l: "Floor", perm: "floor", group: "SERVICE", icon: LayoutGrid },
-  { k: "order", l: "Order", perm: "order", group: "SERVICE", icon: ReceiptText },
-  { k: "orders", l: "Orders", perm: "history", group: "SERVICE", icon: History },
+  { k: "order", l: "Current check", perm: "order", group: "SERVICE", icon: ReceiptText },
+  { k: "orders", l: "Order history", perm: "history", group: "SERVICE", icon: History },
   { k: "online", l: "Online orders", perm: "online", group: "SERVICE", icon: Bike },
   { k: "kds", l: "Kitchen", perm: "kds", group: "SERVICE", icon: ChefHat },
   { k: "cash", l: "Cash drawer", perm: "cash", group: "SERVICE", icon: Wallet },
   { k: "dash", l: "Reports", perm: "reports", group: "MANAGE", icon: BarChart3 },
   { k: "menu", l: "Menu", perm: "menu", group: "MANAGE", icon: UtensilsCrossed },
   { k: "staff", l: "Staff & roles", perm: "staff", group: "MANAGE", icon: Users },
+  { k: "audit", l: "Activity log", perm: "reports", group: "MANAGE", icon: Activity },
   { k: "settings", l: "Settings", perm: "tables", group: "MANAGE", icon: Settings },
 ];
 
@@ -90,9 +92,32 @@ function Shell({ s, screen, go, orderId, payNow, allowed, navOpen, setNavOpen, o
   allowed: typeof MODULES; navOpen: boolean; setNavOpen: (v: boolean) => void; onLock: () => void; setTenant: (t: Tenant) => void;
 }) {
   const fmt = useFmt(s);
-  const { data: online } = usePoll<{ status: string }[]>(can(s.user, "online") ? "/online" : null, 8000);
-  const { data: kds } = usePoll<unknown[]>(can(s.user, "kds") ? "/kds" : null, 8000);
-  const badges: Partial<Record<Screen, number>> = { online: online?.filter((o) => o.status === "new").length, kds: kds?.length };
+  const revs = useLiveFeed(true);
+  return (
+    <Live.Provider value={revs}>
+      <ShellInner s={s} screen={screen} go={go} orderId={orderId} payNow={payNow} allowed={allowed} navOpen={navOpen}
+        setNavOpen={setNavOpen} onLock={onLock} setTenant={setTenant} fmt={fmt} />
+    </Live.Provider>
+  );
+}
+
+function ShellInner({ s, screen, go, orderId, payNow, allowed, navOpen, setNavOpen, onLock, setTenant, fmt }: {
+  s: Session; screen: Screen; go: (sc: Screen, o?: { orderId?: string; pay?: boolean }) => void; orderId: string | null; payNow: boolean;
+  allowed: typeof MODULES; navOpen: boolean; setNavOpen: (v: boolean) => void; onLock: () => void; setTenant: (t: Tenant) => void;
+  fmt: (v: number) => string;
+}) {
+  const { data: online } = usePoll<{ status: string }[]>(can(s.user, "online") ? "/online" : null, 30000, "online");
+  const { data: kds } = usePoll<unknown[]>(can(s.user, "kds") ? "/kds" : null, 30000, "kds");
+  const fresh = online?.filter((o) => o.status === "new").length ?? 0;
+  const tickets = kds?.length ?? 0;
+  const last = useRef<{ fresh: number; tickets: number } | null>(null);
+  useEffect(() => {
+    // Chime when a new online order arrives (anywhere) or a new ticket lands while the kitchen screen is up.
+    if (online == null && kds == null) return;
+    if (last.current && (fresh > last.current.fresh || (screen === "kds" && tickets > last.current.tickets))) chime();
+    last.current = { fresh, tickets };
+  }, [fresh, tickets, online, kds, screen]);
+  const badges: Partial<Record<Screen, number>> = { online: fresh, kds: tickets };
   const act = MODULES.find((m) => m.k === screen)!;
   const ini = s.user.name.split(" ").map((w) => w[0]).join("").slice(0, 2);
   const trialDays = s.tenant?.trial_ends_at && s.tenant.status === "trial"
@@ -168,6 +193,7 @@ function Shell({ s, screen, go, orderId, payNow, allowed, navOpen, setNavOpen, o
             {screen === "orders" && <OrdersScreen />}
             {screen === "cash" && <CashScreen />}
             {screen === "settings" && <SettingsScreen />}
+            {screen === "audit" && <ActivityScreen />}
             {screen === "online" && <Online />}
             {screen === "kds" && <Kitchen />}
             {screen === "dash" && <Dashboard />}

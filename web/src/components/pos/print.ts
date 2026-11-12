@@ -72,8 +72,8 @@ export function printReceipt(o: Order, t: Tenant | null | undefined, fmt: (v: nu
 export function printKot(k: KotPrint, title: string) {
   const body = `<div class="c b huge">KOT ${k.kot_number}</div>
     <div class="c b big">${esc(title)}</div>
-    <div class="c">${when(k.created_at)}</div><hr>
-    ${k.items.map((i) => `<div class="big b">${i.qty} × ${esc(i.name)}</div>
+    <div class="c">${when(k.created_at)}</div>${k.course ? `<div class="c b big">COURSE ${k.course}</div>` : ""}<hr>
+    ${k.items.map((i) => `<div class="big b">${i.qty} × ${esc(i.name)}${i.seat ? ` · S${i.seat}` : ""}</div>
       ${i.modifiers.map((m) => `<div class="m big">+ ${esc(m.name)}</div>`).join("")}
       ${i.note ? `<div class="m big">!! ${esc(i.note)}</div>` : ""}`).join("")}
     <hr>`;

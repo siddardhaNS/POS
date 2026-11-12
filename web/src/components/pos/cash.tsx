@@ -20,7 +20,7 @@ const when = (iso: string) => new Date(iso).toLocaleString(undefined, { weekday:
 
 export function CashScreen() {
   const { s, fmt } = usePos();
-  const { data, setData } = usePoll<Drawer>("/cash", 20000);
+  const { data, setData } = usePoll<Drawer>("/cash", 20000, "cash");
   const [float, setFloat] = useState("");
   const [move, setMove] = useState<null | "in" | "out">(null);
   const [closing, setClosing] = useState(false);

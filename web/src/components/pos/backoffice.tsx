@@ -21,7 +21,7 @@ interface Summary { current: Kpi; previous: Kpi; labels: string[]; series: numbe
 export function Dashboard() {
   const { s, fmt } = usePos();
   const [range, setRange] = useState<"today" | "7d" | "30d">("today");
-  const { data } = usePoll<Summary>(`/reports/summary?range=${range}`, 30000);
+  const { data } = usePoll<Summary>(`/reports/summary?range=${range}`, 30000, "orders");
   const [hover, setHover] = useState<number | null>(null);
 
   const delta = (a: number, b: number) => (b ? `${a >= b ? "+" : "−"}${Math.abs(((a - b) / b) * 100).toFixed(1)}% vs previous` : "No prior data");
@@ -89,7 +89,7 @@ const STATIONS = ["Curry", "Tandoor", "Fry", "Cold", "Bar", "Kitchen"];
 export function MenuAdmin() {
   const { s, fmt } = usePos();
   const edit = can(s.user, "menu_edit");
-  const { data: menu, reload, setData } = usePoll<Category[]>("/menu/manage", 0);
+  const { data: menu, reload, setData } = usePoll<Category[]>("/menu/manage", 0, "menu");
   const [cat, setCat] = useState<string | null>(null);
   const [sel, setSel] = useState<MenuItem | null>(null);
   const [importing, setImporting] = useState(false);
