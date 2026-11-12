@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { ShoppingBag } from "lucide-react";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
@@ -9,6 +9,7 @@ import { api, can } from "@/lib/api";
 import { cn } from "@/lib/utils";
 import { Empty, Seg, clock, run, useNow, usePoll, usePos } from "./shared";
 import type { Order, TableRow } from "./types";
+import { TableGlyph, type PlanSection, gridBg, planBounds, useCell } from "./floorplan";
 
 export type { TableRow } from "./types";
 
@@ -22,7 +23,9 @@ const STATE = {
 export function Floor() {
   const { s, fmt, go } = usePos();
   const now = useNow(15_000);
-  const [view, setView] = useState<"map" | "timeline">("map");
+  const [view, setView] = useState<"plan" | "map" | "timeline">("plan");
+  const [section, setSection] = useState<string | null>(null);
+  const { data: plan } = usePoll<{ sections: PlanSection[] }>("/floor/plan", 0, "floor");
   const [newTakeaway, setNewTakeaway] = useState(false);
   const { data: tables } = usePoll<TableRow[]>("/tables", 5000, "floor");
   const { data: counter } = usePoll<Order[]>("/orders/open?channel=takeaway", 5000, "floor");
@@ -41,13 +44,14 @@ export function Floor() {
     const late = t.state === "kitchen" && age > 15;
     return { t, age, late, pri: late ? 0 : rank[t.state] };
   }).sort((a, b) => a.pri - b.pri);
-  const sections = [...new Set((tables ?? []).map((t) => t.section || "Main"))];
+  const sections = plan?.sections.map((x) => x.name) ?? [...new Set((tables ?? []).map((t) => t.section || "Main"))];
+  const activeSection = section && sections.includes(section) ? section : sections[0];
 
   return (
     <div className="flex h-full flex-col gap-5 overflow-auto p-5 md:p-7">
       <div className="flex flex-wrap items-center gap-4">
-        <Seg value={view} onChange={setView} options={[["map", "Map"], ["timeline", "Timeline"]]} />
-        <span className="hidden text-sm text-muted-foreground sm:inline">{view === "map" ? "Tap a table to open its check" : "Sorted by who needs attention"}</span>
+        <Seg value={view} onChange={setView} options={[["plan", "Floor plan"], ["map", "Grid"], ["timeline", "Timeline"]]} />
+        <span className="hidden text-sm text-muted-foreground sm:inline">{view === "timeline" ? "Sorted by who needs attention" : "Tap a table to open its check"}</span>
         {canOrder && (
           <button onClick={() => setNewTakeaway(true)} className="ml-auto flex items-center gap-2 rounded-xl bg-foreground px-4 py-2.5 text-sm font-semibold text-background">
             <ShoppingBag className="size-4" />New takeaway
@@ -74,7 +78,27 @@ export function Floor() {
         </section>
       )}
 
-      {view === "map" ? (
+      {view === "plan" ? (
+        <>
+          <div className="flex flex-wrap items-center gap-2">
+            {sections.length > 1 && sections.map((sec) => {
+              const busyHere = (tables ?? []).filter((t) => t.section === sec && t.state !== "free").length;
+              return (
+                <button key={sec} onClick={() => setSection(sec)}
+                  className={cn("rounded-xl px-3.5 py-2 text-sm font-medium", activeSection === sec ? "bg-foreground text-background" : "bg-card text-[#5d5a53] ring-1 ring-border")}>
+                  {sec}{busyHere > 0 && <span className="ml-1.5 rounded-full bg-saffron px-1.5 font-mono text-[11px] text-[#1d1c1a]">{busyHere}</span>}
+                </button>
+              );
+            })}
+            <div className="ml-auto flex flex-wrap gap-4 text-xs text-muted-foreground">
+              {(["unsent", "kitchen", "served"] as const).map((k) => (
+                <span key={k} className="flex items-center gap-1.5"><span className={cn("size-2.5 rounded-full", STATE[k].dot)} />{STATE[k].label}</span>
+              ))}
+            </div>
+          </div>
+          <PlanView tables={(tables ?? []).filter((t) => t.section === activeSection)} now={now} fmt={fmt} onOpen={(t) => open(t)} />
+        </>
+      ) : view === "map" ? (
         <>
           <div className="flex flex-wrap gap-4 text-xs text-muted-foreground">
             {(["unsent", "kitchen", "served"] as const).map((k) => (
@@ -163,5 +187,32 @@ function TakeawayDialog({ onClose, onCreated }: { onClose: () => void; onCreated
         </form>
       </DialogContent>
     </Dialog>
+  );
+}
+
+function PlanView({ tables, now, fmt, onOpen }: { tables: TableRow[]; now: number; fmt: (v: number) => string; onOpen: (t: TableRow) => void }) {
+  const wrap = useRef<HTMLDivElement>(null);
+  const cell = useCell(wrap);
+  const { cols, rows } = planBounds(tables);
+  return (
+    <div ref={wrap} className="relative min-h-[420px] flex-1 overflow-auto rounded-3xl border border-border bg-[#fbf8f3]">
+      <div className="relative" style={{ width: cols * cell, height: rows * cell, ...gridBg(cell) }}>
+        {tables.map((t) => {
+          const mins = t.kitchen_since ? Math.floor((now - new Date(t.kitchen_since).getTime()) / 60000) : 0;
+          const late = t.state === "kitchen" && mins > 15;
+          return (
+            <button key={t.id} onClick={() => onOpen(t)} className="absolute transition hover:scale-[1.03] active:scale-[0.98]" style={{ left: t.x * cell, top: t.y * cell }}>
+              <TableGlyph t={t} cell={cell} tone={t.state === "free" ? "free" : t.state} dashed={t.state === "free"}>
+                {t.state === "free"
+                  ? <div className="text-[10px] opacity-60">{t.seats} seats</div>
+                  : <div className="font-mono text-[11px] font-semibold">{fmt(t.total)}</div>}
+                {t.state === "kitchen" && <div className={cn("font-mono text-[10px]", late && "font-bold text-[#d0421b]")}>{mins}m</div>}
+              </TableGlyph>
+            </button>
+          );
+        })}
+        {tables.length === 0 && <div className="absolute inset-0 grid place-items-center text-sm text-muted-foreground">No tables in this section yet. Add them in Floor plan.</div>}
+      </div>
+    </div>
   );
 }

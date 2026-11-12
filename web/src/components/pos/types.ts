@@ -29,6 +29,7 @@ export interface TableRow {
   id: string; name: string; seats: number; section: string; state: "free" | "unsent" | "kitchen" | "served";
   order_id: string | null; total: number; paid: number; guests: number; items: number;
   kitchen_since: string | null; opened_at: string | null;
+  shape: "round" | "square" | "rect" | "booth" | "bar"; x: number; y: number; rotation: number;
 }
 
 export interface KotPrint {

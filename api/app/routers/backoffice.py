@@ -11,7 +11,7 @@ from sqlalchemy.orm import Session, selectinload
 from ..db import get_db
 from ..deps import Ctx, require
 from ..live import audit
-from ..models import AuditLog, DiningTable, MenuCategory, MenuItem, ModifierGroup, ModifierOption, Order, User
+from ..models import AuditLog, DiningTable, FloorSection, MenuCategory, MenuItem, ModifierGroup, ModifierOption, Order, User
 from ..security import hash_secret
 from .pos import money, tenant_tz
 
@@ -324,10 +324,109 @@ def update_settings(body: SettingsIn, ctx: Ctx = Depends(require("settings")), d
     return tenant_out(t)
 
 
-# ---------- Tables (floor plan) ----------
+# ---------- Floor plan: sections & tables ----------
+
+SHAPES = r"^(round|square|rect|booth|bar)$"
+
 
 def table_out(t: DiningTable) -> dict:
-    return {"id": t.id, "name": t.name, "seats": t.seats, "section": t.section, "sort": t.sort}
+    return {"id": t.id, "name": t.name, "seats": t.seats, "section": t.section, "sort": t.sort,
+            "shape": t.shape, "x": t.x, "y": t.y, "rotation": t.rotation}
+
+
+def section_out(s: FloorSection) -> dict:
+    return {"id": s.id, "name": s.name, "sort": s.sort}
+
+
+@router.get("/floor/plan")
+def floor_plan(ctx: Ctx = Depends(require("floor")), db: Session = Depends(get_db)):
+    secs = [section_out(x) for x in db.scalars(select(FloorSection).where(FloorSection.tenant_id == ctx.tenant_id)
+                                               .order_by(FloorSection.sort)).all()]
+    ts = db.scalars(select(DiningTable).where(DiningTable.tenant_id == ctx.tenant_id).order_by(DiningTable.sort)).all()
+    names = {x["name"] for x in secs}
+    for t in ts:  # a table whose section row is missing still shows up
+        if t.section not in names:
+            names.add(t.section)
+            secs.append({"id": f"implicit:{t.section}", "name": t.section, "sort": len(secs)})
+    return {"sections": secs, "tables": [table_out(t) for t in ts]}
+
+
+def ensure_section(db: Session, ctx: Ctx, name: str) -> None:
+    if not db.scalar(select(FloorSection.id).where(FloorSection.tenant_id == ctx.tenant_id, FloorSection.name == name)):
+        n = db.scalar(select(func.max(FloorSection.sort)).where(FloorSection.tenant_id == ctx.tenant_id))
+        db.add(FloorSection(tenant_id=ctx.tenant_id, name=name, sort=(n if n is not None else -1) + 1))
+        db.flush()
+
+
+class SectionIn(BaseModel):
+    name: str = Field(min_length=1, max_length=40)
+
+
+def section_clash(db: Session, ctx: Ctx, name: str) -> str | None:
+    return db.scalar(select(FloorSection.id).where(FloorSection.tenant_id == ctx.tenant_id,
+                                                   func.lower(FloorSection.name) == name.lower()))
+
+
+@router.post("/floor/sections", status_code=201)
+def add_section(body: SectionIn, ctx: Ctx = Depends(require("tables")), db: Session = Depends(get_db)):
+    name = body.name.strip()
+    if section_clash(db, ctx, name):
+        raise HTTPException(409, f"There is already a section called {name}")
+    ensure_section(db, ctx, name)
+    db.commit()
+    return floor_plan(ctx, db)
+
+
+def own_section(db: Session, ctx: Ctx, sid: str) -> FloorSection:
+    s = db.scalar(select(FloorSection).where(FloorSection.id == sid, FloorSection.tenant_id == ctx.tenant_id))
+    if not s:
+        raise HTTPException(404, "Section not found")
+    return s
+
+
+@router.patch("/floor/sections/{sid}")
+def rename_section(sid: str, body: SectionIn, ctx: Ctx = Depends(require("tables")), db: Session = Depends(get_db)):
+    s = own_section(db, ctx, sid)
+    name = body.name.strip()
+    clash = section_clash(db, ctx, name)
+    if clash and clash != s.id:
+        raise HTTPException(409, f"There is already a section called {name}")
+    for t in db.scalars(select(DiningTable).where(DiningTable.tenant_id == ctx.tenant_id, DiningTable.section == s.name)):
+        t.section = name
+    s.name = name
+    db.commit()
+    return floor_plan(ctx, db)
+
+
+@router.delete("/floor/sections/{sid}")
+def delete_section(sid: str, ctx: Ctx = Depends(require("tables")), db: Session = Depends(get_db)):
+    s = own_section(db, ctx, sid)
+    if db.scalar(select(DiningTable.id).where(DiningTable.tenant_id == ctx.tenant_id, DiningTable.section == s.name)):
+        raise HTTPException(409, f"Move or remove the tables in {s.name} first")
+    db.delete(s)
+    db.commit()
+    return floor_plan(ctx, db)
+
+
+class TableIn(BaseModel):
+    name: str = Field(min_length=1, max_length=20)
+    seats: int = Field(default=4, ge=1, le=40)
+    section: str = Field(default="Main", min_length=1, max_length=40)
+    shape: str = Field(default="square", pattern=SHAPES)
+    x: int = Field(default=1, ge=0, le=200)
+    y: int = Field(default=1, ge=0, le=200)
+    rotation: int = Field(default=0, ge=0, le=270)
+
+
+class TablePatch(BaseModel):
+    name: str | None = Field(default=None, min_length=1, max_length=20)
+    seats: int | None = Field(default=None, ge=1, le=40)
+    section: str | None = Field(default=None, min_length=1, max_length=40)
+    sort: int | None = Field(default=None, ge=0, le=10_000)
+    shape: str | None = Field(default=None, pattern=SHAPES)
+    x: int | None = Field(default=None, ge=0, le=200)
+    y: int | None = Field(default=None, ge=0, le=200)
+    rotation: int | None = Field(default=None, ge=0, le=270)
 
 
 @router.get("/floor/tables")
@@ -336,31 +435,19 @@ def list_tables(ctx: Ctx = Depends(require("tables")), db: Session = Depends(get
     return [table_out(t) for t in ts]
 
 
-class TableIn(BaseModel):
-    name: str = Field(min_length=1, max_length=20)
-    seats: int = Field(default=4, ge=1, le=40)
-    section: str = Field(default="Main", min_length=1, max_length=40)
-
-
-class TablePatch(BaseModel):
-    name: str | None = Field(default=None, min_length=1, max_length=20)
-    seats: int | None = Field(default=None, ge=1, le=40)
-    section: str | None = Field(default=None, min_length=1, max_length=40)
-    sort: int | None = Field(default=None, ge=0, le=10_000)
-
-
 def name_free(db: Session, ctx: Ctx, name: str, skip: str | None = None) -> None:
     hit = db.scalar(select(DiningTable.id).where(DiningTable.tenant_id == ctx.tenant_id, func.lower(DiningTable.name) == name.lower()))
     if hit and hit != skip:
-        raise HTTPException(409, f"There's already a table called {name}")
+        raise HTTPException(409, f"There is already a table called {name}")
 
 
 @router.post("/floor/tables", status_code=201)
 def add_table(body: TableIn, ctx: Ctx = Depends(require("tables")), db: Session = Depends(get_db)):
     name_free(db, ctx, body.name.strip())
+    ensure_section(db, ctx, body.section.strip())
     n = db.scalar(select(func.max(DiningTable.sort)).where(DiningTable.tenant_id == ctx.tenant_id))
-    t = DiningTable(tenant_id=ctx.tenant_id, name=body.name.strip(), seats=body.seats, section=body.section.strip(),
-                    sort=(n or 0) + 1)
+    t = DiningTable(tenant_id=ctx.tenant_id, **body.model_dump(exclude={"name", "section"}), name=body.name.strip(),
+                    section=body.section.strip(), sort=(n or 0) + 1)
     db.add(t)
     db.commit()
     return table_out(t)
@@ -380,8 +467,11 @@ def edit_table(tid: str, body: TablePatch, ctx: Ctx = Depends(require("tables"))
     if "name" in data:
         data["name"] = data["name"].strip()
         name_free(db, ctx, data["name"], skip=t.id)
+    if "section" in data:
+        data["section"] = data["section"].strip()
+        ensure_section(db, ctx, data["section"])
     for k, v in data.items():
-        setattr(t, k, v.strip() if isinstance(v, str) else v)
+        setattr(t, k, v)
     db.commit()
     return table_out(t)
 

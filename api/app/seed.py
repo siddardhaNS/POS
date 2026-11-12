@@ -6,7 +6,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from .config import settings
-from .models import DiningTable, MenuCategory, MenuItem, ModifierGroup, ModifierOption, Tenant, User, now
+from .models import DiningTable, FloorSection, MenuCategory, MenuItem, ModifierGroup, ModifierOption, Tenant, User, now
 from .security import hash_secret
 
 MARKETS = {
@@ -64,9 +64,14 @@ def provision_tenant(db: Session, tenant: Tenant) -> None:
     for i, (name, p, veg, cat, station) in enumerate(STARTER_MENU):
         db.add(MenuItem(tenant_id=tenant.id, category_id=cats[cat].id, name=name,
                         price=market_price(p, tenant.market), is_veg=veg, station=station, sort=i))
+    db.add(FloorSection(tenant_id=tenant.id, name="Main", sort=0))
+    db.add(FloorSection(tenant_id=tenant.id, name="Patio", sort=1))
     for i, seats in enumerate(TABLE_SEATS):
-        db.add(DiningTable(tenant_id=tenant.id, name=f"T{i + 1}", seats=seats, sort=i,
-                           section="Main" if i < 8 else "Patio"))
+        main = i < 8
+        j = i if main else i - 8
+        shape = "rect" if seats >= 6 else "round" if seats <= 2 else "square"
+        db.add(DiningTable(tenant_id=tenant.id, name=f"T{i + 1}", seats=seats, sort=i, section="Main" if main else "Patio",
+                           shape=shape, x=(j % 4) * 6 + 2, y=(j // 4) * 6 + 2))
     db.flush()
     add_starter_modifiers(db, tenant)
 

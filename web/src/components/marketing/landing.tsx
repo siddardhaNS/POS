@@ -17,13 +17,13 @@ const TABS = [
     id: "pos", label: "Point of sale", kicker: "FRONT OF HOUSE",
     title: "Ring it in faster than they can say “and a side of…”",
     body: "A clean, touch-first order screen your newest server learns in one shift. Modifiers, courses, seat numbers and split checks are all one tap away.",
-    bullets: ["Floor plan with live status", "Modifiers & required choices", "Split by item, guest or amount", "Takeaway & counter orders"],
+    bullets: ["Floor plan with live status", "Courses, seats & modifiers", "Split by item, seat or amount", "Takeaway & counter orders"],
   },
   {
     id: "kds", label: "Kitchen display", kicker: "BACK OF HOUSE",
     title: "Heard, fired, bumped. No more lost tickets.",
     body: "Tickets land on the right station the moment they are fired, with timers that turn orange before anything goes cold.",
-    bullets: ["Station routing", "Ticket timers", "Allergy & 86 flags", "Printed kitchen tickets"],
+    bullets: ["Station routing", "Fire by course", "Recall & bump", "Printed kitchen tickets"],
   },
   {
     id: "online", label: "Online orders", kicker: "DELIVERY & PICKUP",
@@ -35,7 +35,7 @@ const TABS = [
     id: "office", label: "Back office", kicker: "THE OFFICE",
     title: "Close the night before you close the door.",
     body: "Sales, discounts and refunds by shift, a counted cash drawer with over/short, and every check searchable after the fact.",
-    bullets: ["Shift & drawer reports", "Order history & reprints", "Refunds with reasons", "Discounts & comps tracked"],
+    bullets: ["Shift & drawer reports", "Order history & reprints", "Refunds with reasons", "Activity log for every discount"],
   },
   {
     id: "menu", label: "Menu import", kicker: "SETUP",
@@ -181,7 +181,7 @@ export function Landing() {
                 <div className="absolute left-4 h-0.5 w-[calc(50%-22px)] bg-[#ec7a2c] shadow-[0_0_12px_2px_rgba(236,122,44,.6)]" style={{ animation: "lp-scan 3s ease-in-out infinite" }} />
               </div>
             </Step>
-            <Step n="02" time="~4 min" title="Drop in your floor" body="Add tables with seat counts and sections like Main, Patio or Bar. Move and merge checks between them during service.">
+            <Step n="02" time="~4 min" title="Drop in your floor" body="Drag tables onto the grid, pick round, square, booth or bar shapes, and set seat counts and sections like Main or Patio.">
               <div className="relative h-[230px] rounded-[14px] bg-[#f6f1ea] bg-[radial-gradient(rgba(28,25,21,.12)_1px,transparent_1px)] bg-[size:16px_16px]">
                 {[
                   { l: 18, t: 18, w: 58, round: true, label: "T1", d: 0.3 },

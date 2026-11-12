@@ -2,12 +2,13 @@
 
 import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { Activity, BarChart3, Bike, ChefHat, History, LayoutGrid, Lock, Menu as MenuIcon, ReceiptText, Settings, UtensilsCrossed, Users, Wallet, X } from "lucide-react";
+import { Activity, Armchair, BarChart3, Bike, ChefHat, History, LayoutGrid, Lock, Menu as MenuIcon, ReceiptText, Settings, UtensilsCrossed, Users, Wallet, X } from "lucide-react";
 import { Dashboard, MenuAdmin, Staff } from "@/components/pos/backoffice";
 import { CashScreen } from "@/components/pos/cash";
 import { OrdersScreen } from "@/components/pos/history";
 import { SettingsScreen } from "@/components/pos/settings";
 import { ActivityScreen } from "@/components/pos/activity";
+import { FloorPlanEditor } from "@/components/pos/floorplan";
 import { Floor } from "@/components/pos/floor";
 import { Kitchen, Online } from "@/components/pos/kitchen";
 import { LockScreen } from "@/components/pos/lock-screen";
@@ -27,7 +28,8 @@ const MODULES: { k: Screen; l: string; perm: string; group: "SERVICE" | "MANAGE"
   { k: "menu", l: "Menu", perm: "menu", group: "MANAGE", icon: UtensilsCrossed },
   { k: "staff", l: "Staff & roles", perm: "staff", group: "MANAGE", icon: Users },
   { k: "audit", l: "Activity log", perm: "reports", group: "MANAGE", icon: Activity },
-  { k: "settings", l: "Settings", perm: "tables", group: "MANAGE", icon: Settings },
+  { k: "floorplan", l: "Floor plan", perm: "tables", group: "MANAGE", icon: Armchair },
+  { k: "settings", l: "Settings", perm: "settings", group: "MANAGE", icon: Settings },
 ];
 
 export default function PosPage() {
@@ -194,6 +196,7 @@ function ShellInner({ s, screen, go, orderId, payNow, allowed, navOpen, setNavOp
             {screen === "cash" && <CashScreen />}
             {screen === "settings" && <SettingsScreen />}
             {screen === "audit" && <ActivityScreen />}
+            {screen === "floorplan" && <FloorPlanEditor />}
             {screen === "online" && <Online />}
             {screen === "kds" && <Kitchen />}
             {screen === "dash" && <Dashboard />}

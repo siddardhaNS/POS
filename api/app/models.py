@@ -94,6 +94,20 @@ class DiningTable(Base):
     seats: Mapped[int] = mapped_column(Integer, default=4)
     sort: Mapped[int] = mapped_column(Integer, default=0)
     section: Mapped[str] = mapped_column(String(40), default="Main")
+    shape: Mapped[str] = mapped_column(String(12), default="square")  # round | square | rect | booth | bar
+    x: Mapped[int] = mapped_column(Integer, default=0)  # grid cell, top-left
+    y: Mapped[int] = mapped_column(Integer, default=0)
+    rotation: Mapped[int] = mapped_column(Integer, default=0)  # 0 | 90
+
+
+class FloorSection(Base):
+    """A room or area of the floor plan (Main, Patio, Bar...). Tables reference it by name."""
+    __tablename__ = "floor_sections"
+    __table_args__ = (UniqueConstraint("tenant_id", "name"),)
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=uid)
+    tenant_id: Mapped[str] = mapped_column(ForeignKey("tenants.id", ondelete="CASCADE"), index=True)
+    name: Mapped[str] = mapped_column(String(40))
+    sort: Mapped[int] = mapped_column(Integer, default=0)
 
 
 class Order(Base):

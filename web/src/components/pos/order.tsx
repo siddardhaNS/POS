@@ -53,7 +53,7 @@ export function OrderScreen() {
   const [paying, setPaying] = useState(payNow);
   const [custom, setCustom] = useState<MenuItem | null>(null);
   const [line, setLine] = useState<Line | null>(null);
-  const [dialog, setDialog] = useState<null | "discount" | "move" | "merge" | "guests" | "void">(null);
+  const [dialog, setDialog] = useState<null | "discount" | "move" | "merge" | "guests" | "void" | "send">(null);
   const [more, setMore] = useState(false);
   const [course, setCourse] = useState(1);
   const [seat, setSeat] = useState(0);
@@ -90,12 +90,14 @@ export function OrderScreen() {
     const o = await run(api<Order>(`/orders/${order!.id}/items`, { body: { menu_item_id: m.id, course, seat, ...extra } }));
     if (o) { setOrder(o); setCustom(null); }
   }
-  async function sendKot(c?: number) {
+  async function sendKot(c?: number, lineIds?: string[]) {
     if (!unsent) return;
-    const r = await run(api<KotPrint & { order: Order }>(`/orders/${order!.id}/kot`, c ? { body: { course: c } } : { method: "POST" }));
+    const body = lineIds ? { line_ids: lineIds } : c ? { course: c } : null;
+    const r = await run(api<KotPrint & { order: Order }>(`/orders/${order!.id}/kot`, body ? { body } : { method: "POST" }));
     if (!r) return;
     setOrder(r.order);
-    toast.success(`KOT ${r.kot_number} ${c ? `· course ${c} fired` : "sent to kitchen"} · ${title}`);
+    setDialog(null);
+    toast.success(`KOT ${r.kot_number} ${c ? `· course ${c} fired` : `· ${r.items.reduce((a, i) => a + i.qty, 0)} items sent`} · ${title}`);
     if (s.tenant?.auto_print_kot) printKot(r, title);
   }
 
@@ -259,9 +261,9 @@ export function OrderScreen() {
         </div>
         {open ? (
           <div className="grid grid-cols-2 gap-2.5 px-5 pb-5">
-            <button onClick={() => sendKot()} disabled={!unsent}
+            <button onClick={() => (order.items.filter((l) => !l.sent).length > 1 ? setDialog("send") : sendKot())} disabled={!unsent}
               className="flex h-14 items-center justify-center gap-2 rounded-2xl bg-muted font-semibold transition disabled:opacity-35">
-              <ChefHat className="size-5" />{unsent ? `${courses.length > 1 ? "Send all" : "Send KOT"} · ${unsent}` : "Nothing to send"}
+              <ChefHat className="size-5" />{unsent ? `Send KOT · ${unsent}` : "Nothing to send"}
             </button>
             <button disabled={!order.items.length}
               onClick={() => (canPay ? setPaying(true) : (printReceipt(order, s.tenant, fmt, "bill"), toast.success(`Bill printed for ${title}`)))}
@@ -281,6 +283,7 @@ export function OrderScreen() {
       {(dialog === "move" || dialog === "merge") && (
         <TablePicker mode={dialog} order={order} onClose={() => setDialog(null)} onUpdate={(o) => { setOrder(o); setDialog(null); }} />
       )}
+      {dialog === "send" && <SendDialog order={order} onClose={() => setDialog(null)} onSend={(ids) => sendKot(undefined, ids)} />}
       {dialog === "void" && <VoidDialog order={order} title={title} onClose={() => setDialog(null)} onDone={() => go("floor")} />}
     </div>
   );
@@ -567,6 +570,61 @@ function TablePicker({ mode, order, onClose, onUpdate }: { mode: "move" | "merge
             ))}
           </div>
         ) : <p className="text-sm text-muted-foreground">No other open checks.</p>}
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+/* ---------- Send to kitchen ---------- */
+
+function SendDialog({ order, onClose, onSend }: { order: Order; onClose: () => void; onSend: (ids: string[]) => void }) {
+  const lines = order.items.filter((l) => !l.sent);
+  const [picked, setPicked] = useState<Set<string>>(new Set(lines.map((l) => l.id)));
+  const courses = [...new Set(lines.map((l) => l.course))].sort();
+  const count = lines.filter((l) => picked.has(l.id)).reduce((a, l) => a + l.qty, 0);
+  const flip = (ids: string[], on: boolean) => setPicked((p) => { const n = new Set(p); ids.forEach((id) => (on ? n.add(id) : n.delete(id))); return n; });
+  return (
+    <Dialog open onOpenChange={(o) => !o && onClose()}>
+      <DialogContent className="max-h-[85vh] gap-4 overflow-y-auto sm:max-w-md">
+        <DialogHeader>
+          <DialogTitle className="text-xl">Send to kitchen</DialogTitle>
+          <DialogDescription>Untick anything you want to hold back. It stays on the check as not sent.</DialogDescription>
+        </DialogHeader>
+        <div className="flex gap-2 text-sm">
+          <button onClick={() => flip(lines.map((l) => l.id), true)} className="rounded-lg bg-muted px-3 py-1.5 font-medium">Select all</button>
+          <button onClick={() => flip(lines.map((l) => l.id), false)} className="rounded-lg bg-muted px-3 py-1.5 font-medium">Clear</button>
+        </div>
+        {courses.map((c) => {
+          const group = lines.filter((l) => l.course === c);
+          const all = group.every((l) => picked.has(l.id));
+          return (
+            <div key={c} className="space-y-1.5">
+              {courses.length > 1 && (
+                <button onClick={() => flip(group.map((l) => l.id), !all)} className="flex w-full items-center justify-between font-mono text-[11px] uppercase tracking-[0.08em] text-muted-foreground">
+                  Course {c}<span className="normal-case tracking-normal">{all ? "Untick course" : "Tick course"}</span>
+                </button>
+              )}
+              {group.map((l) => {
+                const on = picked.has(l.id);
+                return (
+                  <button key={l.id} onClick={() => flip([l.id], !on)}
+                    className={cn("flex w-full items-center gap-3 rounded-xl px-3 py-2.5 text-left ring-1 transition", on ? "bg-card ring-foreground" : "bg-muted/40 ring-border opacity-60")}>
+                    <span className={cn("grid size-5 shrink-0 place-items-center rounded-md border", on ? "border-foreground bg-foreground text-background" : "border-border")}>{on && <Check className="size-3.5" />}</span>
+                    <span className="font-mono text-sm font-semibold">{l.qty}×</span>
+                    <span className="min-w-0 flex-1">
+                      <span className="block truncate text-sm font-medium">{l.name}{l.seat > 0 && <span className="ml-1.5 font-mono text-[11px] text-muted-foreground">S{l.seat}</span>}</span>
+                      {(l.modifiers.length > 0 || l.note) && <span className="block truncate text-xs text-muted-foreground">{[...l.modifiers.map((m) => m.name), l.note && `“${l.note}”`].filter(Boolean).join(" · ")}</span>}
+                    </span>
+                  </button>
+                );
+              })}
+            </div>
+          );
+        })}
+        <button disabled={!count} onClick={() => onSend(lines.filter((l) => picked.has(l.id)).map((l) => l.id))}
+          className={cn(big, "flex items-center justify-center gap-2 bg-foreground text-background")}>
+          <ChefHat className="size-5" />{count ? `Send ${count} item${count === 1 ? "" : "s"}` : "Pick items to send"}
+        </button>
       </DialogContent>
     </Dialog>
   );

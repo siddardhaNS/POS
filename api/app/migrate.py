@@ -20,7 +20,14 @@ COLUMNS: dict[str, list[tuple[str, str, str | None]]] = {
         ("auto_print_kot", "BOOLEAN NOT NULL DEFAULT FALSE", None),
         ("auto_print_receipt", "BOOLEAN NOT NULL DEFAULT FALSE", None),
     ],
-    "dining_tables": [("section", "VARCHAR(40) NOT NULL DEFAULT 'Main'", None)],
+    "dining_tables": [
+        ("section", "VARCHAR(40) NOT NULL DEFAULT 'Main'", None),
+        ("shape", "VARCHAR(12) NOT NULL DEFAULT 'square'",
+         "UPDATE dining_tables SET shape = CASE WHEN seats >= 6 THEN 'rect' WHEN seats <= 2 THEN 'round' ELSE 'square' END"),
+        ("x", "INTEGER NOT NULL DEFAULT 0", "UPDATE dining_tables SET x = (sort % 4) * 6 + 2"),
+        ("y", "INTEGER NOT NULL DEFAULT 0", "UPDATE dining_tables SET y = (sort / 4) * 6 + 2"),
+        ("rotation", "INTEGER NOT NULL DEFAULT 0", None),
+    ],
     "orders": [
         ("customer_phone", "VARCHAR(40) NOT NULL DEFAULT ''", None),
         ("guests", "INTEGER NOT NULL DEFAULT 0", None),
@@ -55,8 +62,18 @@ FROM orders WHERE status = 'paid'
 """
 
 
+# One floor_sections row per section name already used by tables.
+SECTIONS_BACKFILL = """
+INSERT INTO floor_sections (id, tenant_id, name, sort)
+SELECT md5(random()::text || tenant_id || section), tenant_id, section,
+       ROW_NUMBER() OVER (PARTITION BY tenant_id ORDER BY MIN(sort)) - 1
+FROM dining_tables GROUP BY tenant_id, section
+"""
+
+
 def migrate(engine: Engine) -> None:
     had_payments = inspect(engine).has_table("payments")
+    had_sections = inspect(engine).has_table("floor_sections")
     Base.metadata.create_all(engine)
     insp = inspect(engine)
     with engine.begin() as conn:
@@ -72,3 +89,5 @@ def migrate(engine: Engine) -> None:
                     conn.execute(text(backfill))
         if not had_payments:
             conn.execute(text(PAYMENTS_BACKFILL))
+        if not had_sections:
+            conn.execute(text(SECTIONS_BACKFILL))

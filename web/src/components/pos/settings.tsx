@@ -1,17 +1,16 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { ArrowDown, ArrowUp, Plus, Printer, Trash2 } from "lucide-react";
+import { Armchair, Printer } from "lucide-react";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
-import { api, can, type Tenant } from "@/lib/api";
+import { api, type Tenant } from "@/lib/api";
 import { cn } from "@/lib/utils";
 import { printReceipt } from "./print";
-import { Seg, run, usePoll, usePos } from "./shared";
+import { Seg, run, usePos } from "./shared";
 import type { Order } from "./types";
 
-interface TableDef { id: string; name: string; seats: number; section: string; sort: number }
 
 const ZONES = ["Asia/Kolkata", "Asia/Dubai", "Asia/Singapore", "Europe/London", "Europe/Berlin", "America/New_York", "America/Chicago",
   "America/Denver", "America/Los_Angeles", "Australia/Sydney", "UTC"];
@@ -28,17 +27,19 @@ function Toggle({ on, onChange, label, hint }: { on: boolean; onChange: (v: bool
 }
 
 export function SettingsScreen() {
-  const { s } = usePos();
-  const owner = can(s.user, "settings");
-  const [tab, setTab] = useState<"restaurant" | "tax" | "receipts" | "tables">(owner ? "restaurant" : "tables");
+  const { go } = usePos();
+  const [tab, setTab] = useState<"restaurant" | "tax" | "receipts">("restaurant");
   return (
     <div className="flex h-full flex-col gap-5 overflow-auto p-5 md:p-7">
-      {owner && (
+      <div className="flex flex-wrap items-center gap-3">
         <div className="overflow-x-auto">
-          <Seg value={tab} onChange={setTab} options={[["restaurant", "Restaurant"], ["tax", "Taxes & tips"], ["receipts", "Receipts & printing"], ["tables", "Tables"]]} />
+          <Seg value={tab} onChange={setTab} options={[["restaurant", "Restaurant"], ["tax", "Taxes & tips"], ["receipts", "Receipts & printing"]]} />
         </div>
-      )}
-      {tab === "tables" ? <TablesEditor /> : <TenantForm tab={tab} />}
+        <button onClick={() => go("floorplan")} className="flex items-center gap-1.5 rounded-xl bg-card px-3.5 py-2 text-sm font-medium ring-1 ring-border">
+          <Armchair className="size-4" />Tables are in Floor plan
+        </button>
+      </div>
+      <TenantForm tab={tab} />
     </div>
   );
 }
@@ -122,58 +123,4 @@ function TenantForm({ tab }: { tab: "restaurant" | "tax" | "receipts" }) {
 
 function Field({ label, hint, children }: { label: string; hint?: string; children: React.ReactNode }) {
   return <div className="space-y-2"><Label>{label}</Label>{children}{hint && <p className="text-xs text-muted-foreground">{hint}</p>}</div>;
-}
-
-function TablesEditor() {
-  const { data: tables, reload, setData } = usePoll<TableDef[]>("/floor/tables", 0);
-  const [form, setForm] = useState({ name: "", seats: 4, section: "Main" });
-  const sections = [...new Set((tables ?? []).map((t) => t.section))];
-
-  async function add(e: React.FormEvent) {
-    e.preventDefault();
-    if (await run(api("/floor/tables", { body: form }), `${form.name} added`)) { setForm({ ...form, name: "" }); reload(); }
-  }
-  async function patch(t: TableDef, body: Partial<TableDef>) {
-    setData((d) => d && d.map((x) => (x.id === t.id ? { ...x, ...body } : x)));
-    if (!(await run(api(`/floor/tables/${t.id}`, { method: "PATCH", body })))) reload();
-  }
-  async function remove(t: TableDef) {
-    if (await run(api(`/floor/tables/${t.id}`, { method: "DELETE" }), `${t.name} removed`)) reload();
-  }
-  async function swap(i: number, j: number) {
-    if (!tables || j < 0 || j >= tables.length) return;
-    const a = tables[i], b = tables[j];
-    await Promise.all([api(`/floor/tables/${a.id}`, { method: "PATCH", body: { sort: b.sort === a.sort ? j : b.sort } }),
-      api(`/floor/tables/${b.id}`, { method: "PATCH", body: { sort: b.sort === a.sort ? i : a.sort } })]).catch(() => {});
-    reload();
-  }
-
-  return (
-    <div className="grid max-w-3xl gap-5">
-      <form onSubmit={add} className="grid gap-3 rounded-2xl border border-border bg-card p-4 sm:grid-cols-[1fr_110px_1fr_auto] sm:items-end">
-        <Field label="Table name"><Input required maxLength={20} value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} placeholder="e.g. T13 or Bar 2" className="h-10" /></Field>
-        <Field label="Seats"><Input type="number" min={1} max={40} value={form.seats} onChange={(e) => setForm({ ...form, seats: Number(e.target.value) || 1 })} className="h-10" /></Field>
-        <Field label="Section">
-          <Input list="sections" required maxLength={40} value={form.section} onChange={(e) => setForm({ ...form, section: e.target.value })} className="h-10" />
-          <datalist id="sections">{sections.map((x) => <option key={x} value={x} />)}</datalist>
-        </Field>
-        <button type="submit" className="flex h-10 items-center justify-center gap-1.5 rounded-xl bg-foreground px-4 text-sm font-semibold text-background"><Plus className="size-4" />Add</button>
-      </form>
-      <div className="overflow-hidden rounded-2xl border border-border bg-card">
-        {tables?.map((t, i) => (
-          <div key={t.id} className="grid grid-cols-[1fr_80px_1fr_auto] items-center gap-3 border-b border-border/60 px-4 py-2.5 last:border-0">
-            <Input defaultValue={t.name} maxLength={20} onBlur={(e) => e.target.value.trim() && e.target.value !== t.name && patch(t, { name: e.target.value.trim() })} className="h-9 font-semibold" />
-            <Input type="number" min={1} max={40} defaultValue={t.seats} onBlur={(e) => Number(e.target.value) !== t.seats && patch(t, { seats: Number(e.target.value) || 1 })} className="h-9" />
-            <Input defaultValue={t.section} list="sections" maxLength={40} onBlur={(e) => e.target.value.trim() && e.target.value !== t.section && patch(t, { section: e.target.value.trim() })} className="h-9" />
-            <div className="flex gap-1">
-              <button onClick={() => swap(i, i - 1)} disabled={i === 0} className="grid size-9 place-items-center rounded-lg bg-muted disabled:opacity-30" aria-label="Move up"><ArrowUp className="size-4" /></button>
-              <button onClick={() => swap(i, i + 1)} disabled={i === tables.length - 1} className="grid size-9 place-items-center rounded-lg bg-muted disabled:opacity-30" aria-label="Move down"><ArrowDown className="size-4" /></button>
-              <button onClick={() => remove(t)} className="grid size-9 place-items-center rounded-lg bg-destructive/10 text-destructive" aria-label={`Remove ${t.name}`}><Trash2 className="size-4" /></button>
-            </div>
-          </div>
-        ))}
-      </div>
-      <p className="text-sm text-muted-foreground">Tables with an open check can&apos;t be removed. Sections group tables on the floor.</p>
-    </div>
-  );
 }

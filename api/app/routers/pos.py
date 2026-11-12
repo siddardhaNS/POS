@@ -147,6 +147,7 @@ def tables(ctx: Ctx = Depends(require("floor")), db: Session = Depends(get_db)):
                 state = "served"
         out.append({
             "id": t.id, "name": t.name, "seats": t.seats, "section": t.section, "state": state,
+            "shape": t.shape, "x": t.x, "y": t.y, "rotation": t.rotation,
             "order_id": o.id if o else None, "total": money(due(o)) if o else 0,
             "paid": money(o.paid) if o else 0, "guests": o.guests if o else 0,
             "items": sum(i.qty for i in o.items) if o else 0,
@@ -430,13 +431,16 @@ def merge(oid: str, body: MergeIn, ctx: Ctx = Depends(require("order")), db: Ses
 
 class KotIn(BaseModel):
     course: int | None = Field(default=None, ge=1, le=5)  # fire only this course; omit to send everything new
+    line_ids: list[str] | None = Field(default=None, max_length=200)  # or pick exact lines to send
 
 
 @router.post("/orders/{oid}/kot")
 def send_kot(oid: str, body: KotIn | None = None, ctx: Ctx = Depends(require("order")), db: Session = Depends(get_db)):
     o = open_order(db, ctx, oid)
     course = body.course if body else None
-    pending = [i for i in o.items if i.kot_id is None and (course is None or i.course == course)]
+    picked = set(body.line_ids) if body and body.line_ids is not None else None
+    pending = [i for i in o.items if i.kot_id is None and (course is None or i.course == course)
+               and (picked is None or i.id in picked)]
     if not pending:
         raise HTTPException(409, "Nothing new to send")
     courses = {i.course for i in pending}
