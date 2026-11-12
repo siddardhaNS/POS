@@ -67,6 +67,8 @@ def tenant_user(ctx: Ctx = Depends(current_user)) -> Ctx:
 
 def require(perm: str):
     def dep(ctx: Ctx = Depends(tenant_user)) -> Ctx:
+        if perm == "floor_or_kds":  # any restaurant role may poll live change counters
+            return ctx
         if perm not in PERMISSIONS.get(ctx.user.role, set()):
             raise HTTPException(status.HTTP_403_FORBIDDEN, f"Your role can't access {perm}")
         return ctx

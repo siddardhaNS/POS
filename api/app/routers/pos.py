@@ -11,7 +11,8 @@ from sqlalchemy.orm import Session, selectinload
 
 from ..db import get_db
 from ..deps import PERMISSIONS, Ctx, require
-from ..models import DiningTable, Kot, MenuItem, ModifierGroup, Order, OrderItem, Payment, Tenant, now
+from ..live import ALL_TOPICS, audit
+from ..models import DiningTable, Kot, LiveRev, MenuItem, ModifierGroup, Order, OrderItem, Payment, Tenant, now
 
 router = APIRouter(tags=["pos"])
 CENT = Decimal("0.01")
@@ -81,6 +82,7 @@ def order_out(o: Order) -> dict:
         "opened_at": o.opened_at.isoformat(), "closed_at": o.closed_at.isoformat() if o.closed_at else None,
         "items": [{"id": i.id, "menu_item_id": i.menu_item_id, "name": i.name, "unit_price": money(i.unit_price),
                    "qty": i.qty, "note": i.note, "modifiers": i.modifiers or [], "comp_reason": i.comp_reason,
+                   "course": i.course, "seat": i.seat, "station": i.station,
                    "line_total": money(line_total(i)), "sent": i.kot_id is not None, "done": i.done,
                    "paid": i.id in paid_lines} for i in o.items],
         "payments": [payment_out(p) for p in o.payments],
@@ -111,6 +113,15 @@ def save(db: Session, ctx: Ctx, o: Order) -> dict:
     recompute(o, ctx.tenant.tax_rate)
     db.commit()
     return order_out(load_order(db, ctx, o.id))
+
+
+# ---------- Live updates ----------
+
+@router.get("/live")
+def live(ctx: Ctx = Depends(require("floor_or_kds")), db: Session = Depends(get_db)):
+    """Change counters per topic. Cheap enough to poll every couple of seconds from every device."""
+    revs = dict(db.execute(select(LiveRev.topic, LiveRev.rev).where(LiveRev.tenant_id == ctx.tenant_id)).all())
+    return {t: revs.get(t, 0) for t in ALL_TOPICS}
 
 
 # ---------- Floor ----------
@@ -237,6 +248,8 @@ class AddItemIn(BaseModel):
     qty: int = Field(default=1, ge=1, le=99)
     note: str = Field(default="", max_length=200)
     modifier_ids: list[str] = Field(default_factory=list, max_length=30)
+    course: int = Field(default=1, ge=1, le=5)
+    seat: int = Field(default=0, ge=0, le=40)
 
 
 def resolve_modifiers(db: Session, ctx: Ctx, m: MenuItem, ids: list[str]) -> list[dict]:
@@ -269,18 +282,21 @@ def add_item(oid: str, body: AddItemIn, ctx: Ctx = Depends(require("order")), db
     unit = m.price + sum((Decimal(str(x["price"])) for x in mods), Decimal(0))
     note = body.note.strip()
     line = next((i for i in o.items if i.menu_item_id == m.id and i.kot_id is None and not i.comp_reason
-                 and i.note == note and (i.modifiers or []) == mods), None)
+                 and i.note == note and (i.modifiers or []) == mods and i.course == body.course and i.seat == body.seat), None)
     if line:
         line.qty += body.qty
     else:
         o.items.append(OrderItem(tenant_id=ctx.tenant_id, menu_item_id=m.id, name=m.name, unit_price=unit,
-                                 qty=body.qty, note=note, modifiers=mods))
+                                 qty=body.qty, note=note, modifiers=mods, course=body.course, seat=body.seat,
+                                 station=m.station))
     return save(db, ctx, o)
 
 
 class LinePatch(BaseModel):
     qty: int | None = Field(default=None, ge=0, le=99)
     note: str | None = Field(default=None, max_length=200)
+    course: int | None = Field(default=None, ge=1, le=5)
+    seat: int | None = Field(default=None, ge=0, le=40)
 
 
 @router.patch("/orders/{oid}/items/{item_id}")
@@ -295,7 +311,17 @@ def edit_line(oid: str, item_id: str, body: LinePatch, ctx: Ctx = Depends(requir
         if line.kot_id is not None:
             raise HTTPException(409, "This item is already in the kitchen")
         line.note = body.note.strip()
+    if body.course is not None:
+        if line.kot_id is not None:
+            raise HTTPException(409, "This item is already in the kitchen")
+        line.course = body.course
+    if body.seat is not None:
+        line.seat = body.seat
     if body.qty is not None:
+        if line.kot_id is not None and body.qty < line.qty:
+            gone = line.qty - body.qty
+            audit(db, ctx, "item_removed", order=o, amount=line_total(line) / line.qty * gone if line.qty else 0,
+                  detail=f"{gone} × {line.name} removed after it was sent to the kitchen")
         if body.qty == 0:
             o.items.remove(line)
         else:
@@ -314,7 +340,12 @@ def comp_line(oid: str, item_id: str, body: CompIn, ctx: Ctx = Depends(require("
     line = next((i for i in o.items if i.id == item_id), None)
     if not line:
         raise HTTPException(404, "Line not found")
+    was = line.comp_reason
     line.comp_reason = body.reason.strip()
+    if line.comp_reason:
+        audit(db, ctx, "comp", order=o, amount=line.unit_price * line.qty, detail=f"{line.qty} × {line.name} · {line.comp_reason}")
+    elif was:
+        audit(db, ctx, "comp_removed", order=o, detail=f"{line.qty} × {line.name}")
     recompute(o, ctx.tenant.tax_rate)
     if balance(o) < 0:
         raise HTTPException(409, "This check is already partly paid. Refund first.")
@@ -340,6 +371,11 @@ def discount(oid: str, body: DiscountIn, ctx: Ctx = Depends(require("discount"))
     recompute(o, ctx.tenant.tax_rate)
     if balance(o) < 0:
         raise HTTPException(409, "This check is already partly paid. Refund first.")
+    if body.kind:
+        label = f"{body.value:g}%" if body.kind == "percent" else "fixed"
+        audit(db, ctx, "discount", order=o, amount=o.discount_amount, detail=f"{label} · {o.discount_reason}")
+    else:
+        audit(db, ctx, "discount_removed", order=o)
     return save(db, ctx, o)
 
 
@@ -359,6 +395,7 @@ def move(oid: str, body: MoveIn, ctx: Ctx = Depends(require("order")), db: Sessi
         raise HTTPException(409, f"{t.name} already has an open check. Merge instead.")
     if o.channel not in ("dine_in", "takeaway"):
         raise HTTPException(409, "Online orders can't be seated")
+    audit(db, ctx, "moved", order=o, detail=f"{o.table.name if o.table else 'Counter'} → {t.name}")
     o.table_id, o.channel = t.id, "dine_in"
     db.commit()
     db.expire(o)  # sessions don't expire on commit; reload the table relationship
@@ -381,6 +418,7 @@ def merge(oid: str, body: MergeIn, ctx: Ctx = Depends(require("order")), db: Ses
     db.execute(update(OrderItem).where(OrderItem.order_id == src.id).values(order_id=o.id))
     db.execute(update(Kot).where(Kot.order_id == src.id).values(order_id=o.id))
     o.guests = (o.guests or 0) + (src.guests or 0)
+    audit(db, ctx, "merged", order=o, detail=f"Check #{src.number} merged into #{o.number}")
     src.status, src.closed_at, src.void_reason = "merged", now(), f"Merged into #{o.number}"
     db.commit()
     db.expire_all()
@@ -390,20 +428,28 @@ def merge(oid: str, body: MergeIn, ctx: Ctx = Depends(require("order")), db: Ses
 
 # ---------- Kitchen tickets ----------
 
+class KotIn(BaseModel):
+    course: int | None = Field(default=None, ge=1, le=5)  # fire only this course; omit to send everything new
+
+
 @router.post("/orders/{oid}/kot")
-def send_kot(oid: str, ctx: Ctx = Depends(require("order")), db: Session = Depends(get_db)):
+def send_kot(oid: str, body: KotIn | None = None, ctx: Ctx = Depends(require("order")), db: Session = Depends(get_db)):
     o = open_order(db, ctx, oid)
-    pending = [i for i in o.items if i.kot_id is None]
+    course = body.course if body else None
+    pending = [i for i in o.items if i.kot_id is None and (course is None or i.course == course)]
     if not pending:
         raise HTTPException(409, "Nothing new to send")
-    k = Kot(tenant_id=ctx.tenant_id, order_id=o.id, number=next_number(db, Kot, ctx.tenant_id))
+    courses = {i.course for i in pending}
+    k = Kot(tenant_id=ctx.tenant_id, order_id=o.id, number=next_number(db, Kot, ctx.tenant_id),
+            course=courses.pop() if len(courses) == 1 else 0)
     db.add(k)
     db.flush()
     for i in pending:
         i.kot_id = k.id
     db.commit()
-    return {"kot_number": k.number, "created_at": k.created_at.isoformat(),
-            "items": [{"name": i.name, "qty": i.qty, "note": i.note, "modifiers": i.modifiers or []} for i in pending],
+    return {"kot_number": k.number, "created_at": k.created_at.isoformat(), "course": k.course,
+            "items": [{"name": i.name, "qty": i.qty, "note": i.note, "modifiers": i.modifiers or [], "seat": i.seat,
+                       "course": i.course} for i in pending],
             "order": order_out(load_order(db, ctx, oid))}
 
 
@@ -482,6 +528,7 @@ def void(oid: str, body: VoidIn | None = None, ctx: Ctx = Depends(require("pay")
     if any(i.kot_id for i in o.items) and ctx.user.role not in ("owner", "manager"):
         raise HTTPException(403, "A manager must void checks with fired items")
     o.status, o.closed_at, o.void_reason = "void", now(), (body.reason.strip() if body else "")
+    audit(db, ctx, "void", order=o, amount=due(o), detail=o.void_reason)
     db.commit()
     return {"ok": True}
 
@@ -495,6 +542,7 @@ def reopen(oid: str, ctx: Ctx = Depends(require("refund")), db: Session = Depend
                                                        Order.status == "open")):
         raise HTTPException(409, "That table already has a new open check")
     o.status, o.closed_at = "open", None
+    audit(db, ctx, "reopen", order=o, amount=o.paid)
     db.commit()
     return order_out(load_order(db, ctx, oid))
 
@@ -519,6 +567,7 @@ def refund(oid: str, body: RefundIn, ctx: Ctx = Depends(require("refund")), db: 
     o.refunded = Decimal(o.refunded or 0) + amount
     if o.refunded >= collected - CENT / 2:
         o.status = "refunded"
+    audit(db, ctx, "refund", order=o, amount=amount, detail=f"{body.method} · {body.reason.strip()}")
     db.commit()
     return order_out(load_order(db, ctx, oid))
 
@@ -533,17 +582,47 @@ def kds_title(o: Order) -> str:
     return f"{o.channel.title()} · #{o.number}"
 
 
-@router.get("/kds")
-def kds(ctx: Ctx = Depends(require("kds")), db: Session = Depends(get_db)):
-    ks = db.scalars(select(Kot).where(Kot.tenant_id == ctx.tenant_id, Kot.bumped.is_(False))
-                    .options(selectinload(Kot.items), selectinload(Kot.order).selectinload(Order.table))
-                    .order_by(Kot.created_at)).all()
-    return [{
+def kot_out(k: Kot, station: str = "") -> dict:
+    items = [i for i in k.items if not station or i.station == station]
+    return {
         "id": k.id, "number": k.number, "created_at": k.created_at.isoformat(), "title": kds_title(k.order),
-        "channel": k.order.channel,
-        "items": [{"id": i.id, "name": i.name, "qty": i.qty, "note": i.note, "done": i.done,
-                   "modifiers": [m["name"] for m in (i.modifiers or [])]} for i in k.items],
-    } for k in ks if k.order.status not in ("void", "merged")]
+        "channel": k.order.channel, "course": k.course, "bumped_at": k.bumped_at.isoformat() if k.bumped_at else None,
+        "items": [{"id": i.id, "name": i.name, "qty": i.qty, "note": i.note, "done": i.done, "seat": i.seat,
+                   "station": i.station, "modifiers": [m["name"] for m in (i.modifiers or [])]} for i in items],
+    }
+
+
+def kots_query(ctx: Ctx):
+    return (select(Kot).where(Kot.tenant_id == ctx.tenant_id)
+            .options(selectinload(Kot.items), selectinload(Kot.order).selectinload(Order.table)))
+
+
+@router.get("/kds")
+def kds(station: str = "", ctx: Ctx = Depends(require("kds")), db: Session = Depends(get_db)):
+    """Open tickets. With a station, only tickets that still have unfinished items for that station."""
+    ks = db.scalars(kots_query(ctx).where(Kot.bumped.is_(False)).order_by(Kot.created_at)).all()
+    out = []
+    for k in ks:
+        if k.order.status in ("void", "merged"):
+            continue
+        if station and not any(i.station == station and not i.done for i in k.items):
+            continue
+        out.append(kot_out(k, station))
+    return out
+
+
+@router.get("/kds/stations")
+def stations(ctx: Ctx = Depends(require("kds")), db: Session = Depends(get_db)):
+    rows = db.scalars(select(MenuItem.station).where(MenuItem.tenant_id == ctx.tenant_id).distinct()).all()
+    return sorted({r for r in rows if r})
+
+
+@router.get("/kds/recent")
+def recent(station: str = "", ctx: Ctx = Depends(require("kds")), db: Session = Depends(get_db)):
+    """Recently bumped tickets, newest first, for recall."""
+    ks = db.scalars(kots_query(ctx).where(Kot.bumped.is_(True)).order_by(Kot.bumped_at.desc().nulls_last()).limit(40)).all()
+    out = [kot_out(k, station) for k in ks if not station or any(i.station == station for i in k.items)]
+    return out[:12]
 
 
 @router.post("/kds/items/{item_id}/toggle")
@@ -556,14 +635,33 @@ def toggle_item(item_id: str, ctx: Ctx = Depends(require("kds")), db: Session = 
     return {"done": i.done}
 
 
-@router.post("/kds/{kot_id}/bump")
-def bump(kot_id: str, ctx: Ctx = Depends(require("kds")), db: Session = Depends(get_db)):
+def own_kot(db: Session, ctx: Ctx, kot_id: str) -> Kot:
     k = db.scalar(select(Kot).where(Kot.id == kot_id, Kot.tenant_id == ctx.tenant_id).options(selectinload(Kot.items)))
     if not k:
         raise HTTPException(404, "Ticket not found")
-    k.bumped = True
+    return k
+
+
+@router.post("/kds/{kot_id}/bump")
+def bump(kot_id: str, station: str = "", ctx: Ctx = Depends(require("kds")), db: Session = Depends(get_db)):
+    """Bump the whole ticket, or only one station's items (the ticket closes when every station is done)."""
+    k = own_kot(db, ctx, kot_id)
     for i in k.items:
-        i.done = True
+        if not station or i.station == station:
+            i.done = True
+    if all(i.done for i in k.items):
+        k.bumped, k.bumped_at = True, now()
+    db.commit()
+    return {"ok": True, "bumped": k.bumped}
+
+
+@router.post("/kds/{kot_id}/recall")
+def recall(kot_id: str, station: str = "", ctx: Ctx = Depends(require("kds")), db: Session = Depends(get_db)):
+    k = own_kot(db, ctx, kot_id)
+    for i in k.items:
+        if not station or i.station == station:
+            i.done = False
+    k.bumped, k.bumped_at = False, None
     db.commit()
     return {"ok": True}
 

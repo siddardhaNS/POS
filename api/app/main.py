@@ -6,6 +6,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from .config import settings
 from .db import SessionLocal, engine
 from .migrate import migrate
+from . import live  # noqa: F401  (registers the change-tracking listener)
 from .routers import admin, auth, backoffice, cash, menu_import, pos
 from .seed import bootstrap
 

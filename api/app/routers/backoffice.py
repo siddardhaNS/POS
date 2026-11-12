@@ -10,7 +10,8 @@ from sqlalchemy.orm import Session, selectinload
 
 from ..db import get_db
 from ..deps import Ctx, require
-from ..models import DiningTable, MenuCategory, MenuItem, ModifierGroup, ModifierOption, Order, User
+from ..live import audit
+from ..models import AuditLog, DiningTable, MenuCategory, MenuItem, ModifierGroup, ModifierOption, Order, User
 from ..security import hash_secret
 from .pos import money, tenant_tz
 
@@ -111,6 +112,8 @@ def edit_item(iid: str, body: ItemPatch, ctx: Ctx = Depends(require("menu_edit")
         own_category(db, ctx, data["category_id"])
     if "price" in data:
         data["price"] = Decimal(str(data["price"]))
+        if data["price"] != m.price:
+            audit(db, ctx, "price_change", amount=data["price"], detail=f"{m.name}: {money(m.price):.2f} → {money(data['price']):.2f}")
     for k, v in data.items():
         setattr(m, k, v)
     db.commit()
@@ -210,10 +213,14 @@ def edit_staff(uid: str, body: StaffPatch, ctx: Ctx = Depends(require("staff")),
     if body.role is not None:
         if body.role not in ROLES or u.role == "owner":
             raise HTTPException(422, "Invalid role")
+        if body.role != u.role:
+            audit(db, ctx, "role_change", detail=f"{u.name}: {u.role} → {body.role}")
         u.role = body.role
     if body.pin is not None:
         u.pin_hash = hash_secret(body.pin)
-    if body.is_active is not None and u.role != "owner":
+        audit(db, ctx, "pin_reset", detail=u.name)
+    if body.is_active is not None and u.role != "owner" and body.is_active != u.is_active:
+        audit(db, ctx, "staff_activated" if body.is_active else "staff_deactivated", detail=u.name)
         u.is_active = body.is_active
     db.commit()
     return {"id": u.id, "name": u.name, "email": u.email, "role": u.role, "is_active": u.is_active,
@@ -308,6 +315,8 @@ def update_settings(body: SettingsIn, ctx: Ctx = Depends(require("settings")), d
             ZoneInfo(data["timezone"])
         except Exception:
             raise HTTPException(422, "Unknown time zone")
+    if "tax_rate" in data and Decimal(str(data["tax_rate"])) != t.tax_rate:
+        audit(db, ctx, "tax_change", detail=f"{float(t.tax_rate) * 100:g}% → {data['tax_rate'] * 100:g}%")
     for k, v in data.items():
         setattr(t, k, Decimal(str(v)) if k == "tax_rate" else v)
     db.commit()
@@ -385,3 +394,24 @@ def delete_table(tid: str, ctx: Ctx = Depends(require("tables")), db: Session = 
     db.delete(t)
     db.commit()
     return {"ok": True}
+
+
+# ---------- Audit trail ----------
+
+@router.get("/audit")
+def audit_log(day: str | None = None, action: str = "", order_id: str = "", ctx: Ctx = Depends(require("reports")),
+              db: Session = Depends(get_db)):
+    stmt = select(AuditLog).where(AuditLog.tenant_id == ctx.tenant_id).order_by(AuditLog.created_at.desc())
+    if order_id:
+        stmt = stmt.where(AuditLog.order_id == order_id)
+    else:
+        tz = tenant_tz(ctx.tenant)
+        d = datetime.strptime(day, "%Y-%m-%d").date() if day else datetime.now(tz).date()
+        start = datetime(d.year, d.month, d.day, tzinfo=tz)
+        stmt = stmt.where(AuditLog.created_at >= start, AuditLog.created_at < start + timedelta(days=1))
+    if action:
+        stmt = stmt.where(AuditLog.action.in_(action.split(",")))
+    rows = db.scalars(stmt.limit(500)).all()
+    return [{"id": a.id, "action": a.action, "user": a.user_name, "order_id": a.order_id, "order_number": a.order_number,
+             "detail": a.detail, "amount": money(a.amount) if a.amount is not None else None,
+             "created_at": a.created_at.isoformat()} for a in rows]

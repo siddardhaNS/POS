@@ -3,7 +3,7 @@ import uuid
 from datetime import datetime, timezone
 from decimal import Decimal
 
-from sqlalchemy import JSON, Boolean, DateTime, ForeignKey, Integer, Numeric, String, Text, UniqueConstraint
+from sqlalchemy import JSON, BigInteger, Boolean, DateTime, ForeignKey, Integer, Numeric, String, Text, UniqueConstraint
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from .db import Base
@@ -140,6 +140,8 @@ class Kot(Base):
     order_id: Mapped[str] = mapped_column(ForeignKey("orders.id", ondelete="CASCADE"))
     number: Mapped[int] = mapped_column(Integer)
     bumped: Mapped[bool] = mapped_column(Boolean, default=False, index=True)
+    bumped_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    course: Mapped[int] = mapped_column(Integer, default=0)  # 0 = everything that was pending
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now)
     order: Mapped[Order] = relationship()
     items: Mapped[list["OrderItem"]] = relationship(back_populates="kot")
@@ -158,6 +160,9 @@ class OrderItem(Base):
     # [{"group": str, "name": str, "price": float}]; unit_price already includes these
     modifiers: Mapped[list] = mapped_column(JSON, default=list)
     comp_reason: Mapped[str] = mapped_column(String(120), default="")
+    course: Mapped[int] = mapped_column(Integer, default=1)
+    seat: Mapped[int] = mapped_column(Integer, default=0)  # 0 = shared / table
+    station: Mapped[str] = mapped_column(String(40), default="")  # copied from the menu item when ordered
     kot_id: Mapped[str | None] = mapped_column(ForeignKey("kots.id", ondelete="SET NULL"), nullable=True)
     done: Mapped[bool] = mapped_column(Boolean, default=False)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now)
@@ -231,3 +236,26 @@ class CashMovement(Base):
     reason: Mapped[str] = mapped_column(String(200), default="")
     user_id: Mapped[str | None] = mapped_column(ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now)
+
+
+class LiveRev(Base):
+    """Per-restaurant change counters. Devices poll these cheaply and refetch only what changed."""
+    __tablename__ = "live_revs"
+    tenant_id: Mapped[str] = mapped_column(ForeignKey("tenants.id", ondelete="CASCADE"), primary_key=True)
+    topic: Mapped[str] = mapped_column(String(20), primary_key=True)
+    rev: Mapped[int] = mapped_column(BigInteger, default=0)
+
+
+class AuditLog(Base):
+    """Who did what to money: discounts, comps, voids, refunds, reopens, cash movements, price changes."""
+    __tablename__ = "audit_logs"
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=uid)
+    tenant_id: Mapped[str] = mapped_column(ForeignKey("tenants.id", ondelete="CASCADE"), index=True)
+    user_id: Mapped[str | None] = mapped_column(ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
+    user_name: Mapped[str] = mapped_column(String(120), default="")
+    action: Mapped[str] = mapped_column(String(40), index=True)
+    order_id: Mapped[str | None] = mapped_column(ForeignKey("orders.id", ondelete="SET NULL"), nullable=True, index=True)
+    order_number: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    detail: Mapped[str] = mapped_column(Text, default="")
+    amount: Mapped[Decimal | None] = mapped_column(Numeric(12, 2), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now, index=True)

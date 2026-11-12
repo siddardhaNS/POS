@@ -10,6 +10,7 @@ from sqlalchemy.orm import Session, selectinload
 from ..db import get_db
 from ..deps import Ctx, require
 from ..models import CashMovement, CashSession, Payment, User, now
+from ..live import audit
 from .pos import money, q
 
 router = APIRouter(tags=["cash"])
@@ -94,6 +95,7 @@ def movement(body: MoveIn, ctx: Ctx = Depends(require("cash")), db: Session = De
         raise HTTPException(409, "Open the drawer first")
     s.movements.append(CashMovement(tenant_id=ctx.tenant_id, kind=body.kind, amount=q(Decimal(str(body.amount))),
                                     reason=body.reason.strip(), user_id=ctx.user.id))
+    audit(db, ctx, f"cash_{body.kind}", amount=body.amount, detail=body.reason.strip())
     db.commit()
     return drawer(ctx, db)
 
@@ -111,5 +113,8 @@ def close_drawer(body: CloseIn, ctx: Ctx = Depends(require("cash")), db: Session
     expected = Decimal(str(summarize(db, ctx, s)["expected_cash"]))
     s.expected_cash, s.counted_cash = expected, q(Decimal(str(body.counted_cash)))
     s.closed_at, s.closed_by, s.note = now(), ctx.user.id, body.note.strip()
+    diff = s.counted_cash - s.expected_cash
+    audit(db, ctx, "drawer_closed", amount=diff,
+          detail=f"Expected {money(expected):.2f}, counted {money(s.counted_cash):.2f}" + (f" · {s.note}" if s.note else ""))
     db.commit()
     return {"closed": summarize(db, ctx, s), **drawer(ctx, db)}
