@@ -32,11 +32,21 @@ Demo accounts (seeded when `SEED_DEMO=true`):
 - Admins can also reject, suspend, reinstate, or mark a restaurant as paying (`active`).
 - Roles: owner, manager, cashier, captain, chef. Permissions live in `api/app/deps.py`.
 
+## Menu import
+
+Menu → **Import** offers two sources, and both show an editable preview before anything is saved:
+
+- **CSV:** headers are matched loosely (name/item/dish, price/rate/mrp, category/section, veg/food type, station, available), with `,` `;` or tab delimiters. Template: `GET /menu/import/template.csv`.
+- **Scan menu (OCR):** up to 8 photos or PDFs, read by Claude (`claude-opus-5-5`, vision + structured output). Needs `ANTHROPIC_API_KEY` on the API. Without it, the endpoint returns a clear "not configured" error.
+
+Re-importing updates items with the same name in the same category instead of duplicating them.
+
 ## Deploy on Vercel
 
 Create two Vercel projects from this repo:
 
 1. **API**: root directory `api/` (uses `index.py` + `vercel.json`). Env vars:
    `DATABASE_URL` (Neon / Vercel Postgres), `JWT_SECRET`, `PLATFORM_ADMIN_EMAIL`, `PLATFORM_ADMIN_PASSWORD`,
-   `CORS_ORIGINS=https://<your-web-domain>`, `SEED_DEMO=false`.
+   `CORS_ORIGINS=https://<your-web-domain>`, `SEED_DEMO=false`, `ANTHROPIC_API_KEY` (menu OCR).
+   Menu scans can take up to a minute, so raise the function's max duration if your plan allows.
 2. **Web**: root directory `web/`. Env var: `NEXT_PUBLIC_API_URL=https://<your-api>.vercel.app`.

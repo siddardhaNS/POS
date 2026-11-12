@@ -5,7 +5,7 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from .config import settings
 from .db import Base, SessionLocal, engine
-from .routers import admin, auth, backoffice, pos
+from .routers import admin, auth, backoffice, menu_import, pos
 from .seed import bootstrap
 
 
@@ -31,7 +31,7 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-for r in (auth.router, admin.router, pos.router, backoffice.router):
+for r in (auth.router, admin.router, pos.router, menu_import.router, backoffice.router):
     app.include_router(r)
 
 

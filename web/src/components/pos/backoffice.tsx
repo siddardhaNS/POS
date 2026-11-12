@@ -2,12 +2,13 @@
 
 import { useState } from "react";
 import { toast } from "sonner";
-import { Plus, Trash2, X } from "lucide-react";
+import { Plus, ScanText, Trash2, X } from "lucide-react";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { api, can } from "@/lib/api";
 import { cn } from "@/lib/utils";
 import { NativeSelect } from "@/components/auth-shell";
+import { MenuImport } from "./menu-import";
 import type { Category, MenuItem } from "./order";
 import { Seg, VegDot, run, usePoll, usePos } from "./shared";
 
@@ -89,6 +90,7 @@ export function MenuAdmin() {
   const { data: menu, reload, setData } = usePoll<Category[]>("/menu/manage", 0);
   const [cat, setCat] = useState<string | null>(null);
   const [sel, setSel] = useState<MenuItem | null>(null);
+  const [importing, setImporting] = useState(false);
   const active = cat ?? menu?.[0]?.id ?? null;
   const cur = menu?.find((c) => c.id === active);
 
@@ -132,9 +134,15 @@ export function MenuAdmin() {
             </button>
           ))}
           {edit && <button onClick={addCategory} className="rounded-xl px-3 py-2 text-sm text-muted-foreground hover:text-foreground">+ Category</button>}
+          {edit && (
+            <button onClick={() => setImporting(true)}
+              className="ml-auto flex items-center gap-1.5 rounded-xl bg-card px-3.5 py-2 text-sm font-medium ring-1 ring-border">
+              <ScanText className="size-4" />Import
+            </button>
+          )}
           {edit && active && (
             <button onClick={() => setSel({ id: "", category_id: active, name: "", price: 0, is_veg: true, station: "Curry", available: true })}
-              className="ml-auto flex items-center gap-1.5 rounded-xl bg-foreground px-3.5 py-2 text-sm font-medium text-background">
+              className="flex items-center gap-1.5 rounded-xl bg-foreground px-3.5 py-2 text-sm font-medium text-background">
               <Plus className="size-4" />New item
             </button>
           )}
@@ -158,6 +166,7 @@ export function MenuAdmin() {
         </div>
       </div>
 
+      <MenuImport open={importing} onOpenChange={setImporting} onDone={reload} />
       <aside className={cn("border-t border-border bg-card p-6 lg:border-l lg:border-t-0", !sel && "hidden lg:block")}>
         {!sel ? (
           <div className="grid h-full place-items-center text-center text-sm text-muted-foreground">Select an item to edit its price, station and availability.</div>

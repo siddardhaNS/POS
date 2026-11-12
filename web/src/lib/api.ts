@@ -96,3 +96,18 @@ export function money(v: number, t: Pick<Tenant, "currency"> | null | undefined)
 }
 
 export const can = (u: SessionUser | undefined, perm: string) => !!u?.permissions.includes(perm);
+
+/** multipart/form-data upload (CSV / menu photos). */
+export async function upload<T = unknown>(path: string, files: File[], field = "file"): Promise<T> {
+  const fd = new FormData();
+  files.forEach((f) => fd.append(field, f));
+  const token = session.get()?.token;
+  const res = await fetch(API_URL + path, {
+    method: "POST",
+    headers: token ? { authorization: `Bearer ${token}` } : {},
+    body: fd,
+  });
+  const data = await res.json().catch(() => null);
+  if (!res.ok) throw new ApiError(res.status, typeof data?.detail === "string" ? data.detail : "Upload failed");
+  return data as T;
+}
