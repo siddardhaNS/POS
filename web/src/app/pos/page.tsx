@@ -2,24 +2,30 @@
 
 import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { BarChart3, Bike, ChefHat, LayoutGrid, Lock, Menu as MenuIcon, ReceiptText, UtensilsCrossed, Users, X } from "lucide-react";
+import { BarChart3, Bike, ChefHat, History, LayoutGrid, Lock, Menu as MenuIcon, ReceiptText, Settings, UtensilsCrossed, Users, Wallet, X } from "lucide-react";
 import { Dashboard, MenuAdmin, Staff } from "@/components/pos/backoffice";
+import { CashScreen } from "@/components/pos/cash";
+import { OrdersScreen } from "@/components/pos/history";
+import { SettingsScreen } from "@/components/pos/settings";
 import { Floor } from "@/components/pos/floor";
 import { Kitchen, Online } from "@/components/pos/kitchen";
 import { LockScreen } from "@/components/pos/lock-screen";
 import { OrderScreen } from "@/components/pos/order";
 import { Pos, type Screen, useFmt, usePoll } from "@/components/pos/shared";
-import { can, session, type Session } from "@/lib/api";
+import { can, session, type Session, type Tenant } from "@/lib/api";
 import { cn } from "@/lib/utils";
 
 const MODULES: { k: Screen; l: string; perm: string; group: "SERVICE" | "MANAGE"; icon: React.ComponentType<{ className?: string }> }[] = [
   { k: "floor", l: "Floor", perm: "floor", group: "SERVICE", icon: LayoutGrid },
   { k: "order", l: "Order", perm: "order", group: "SERVICE", icon: ReceiptText },
+  { k: "orders", l: "Orders", perm: "history", group: "SERVICE", icon: History },
   { k: "online", l: "Online orders", perm: "online", group: "SERVICE", icon: Bike },
   { k: "kds", l: "Kitchen", perm: "kds", group: "SERVICE", icon: ChefHat },
+  { k: "cash", l: "Cash drawer", perm: "cash", group: "SERVICE", icon: Wallet },
   { k: "dash", l: "Reports", perm: "reports", group: "MANAGE", icon: BarChart3 },
   { k: "menu", l: "Menu", perm: "menu", group: "MANAGE", icon: UtensilsCrossed },
   { k: "staff", l: "Staff & roles", perm: "staff", group: "MANAGE", icon: Users },
+  { k: "settings", l: "Settings", perm: "tables", group: "MANAGE", icon: Settings },
 ];
 
 export default function PosPage() {
@@ -54,6 +60,17 @@ export default function PosPage() {
     setNavOpen(false);
   }, []);
 
+  const setTenant = useCallback((t: Tenant) => {
+    setS((cur) => {
+      if (!cur) return cur;
+      const next = { ...cur, tenant: t };
+      session.set(next);
+      const d = session.device();
+      if (d) localStorage.setItem("tiffin.device", JSON.stringify({ ...d, tenant: t }));
+      return next;
+    });
+  }, []);
+
   if (!device) return null;
   if (locked || !s)
     return (
@@ -64,13 +81,13 @@ export default function PosPage() {
       />
     );
 
-  return <Shell s={s} screen={screen} go={go} orderId={orderId} payNow={payNow} allowed={allowed} navOpen={navOpen} setNavOpen={setNavOpen}
+  return <Shell s={s} screen={screen} go={go} orderId={orderId} payNow={payNow} allowed={allowed} navOpen={navOpen} setNavOpen={setNavOpen} setTenant={setTenant}
     onLock={() => { session.lock(); setS(null); setLocked(true); setOrderId(null); }} />;
 }
 
-function Shell({ s, screen, go, orderId, payNow, allowed, navOpen, setNavOpen, onLock }: {
+function Shell({ s, screen, go, orderId, payNow, allowed, navOpen, setNavOpen, onLock, setTenant }: {
   s: Session; screen: Screen; go: (sc: Screen, o?: { orderId?: string; pay?: boolean }) => void; orderId: string | null; payNow: boolean;
-  allowed: typeof MODULES; navOpen: boolean; setNavOpen: (v: boolean) => void; onLock: () => void;
+  allowed: typeof MODULES; navOpen: boolean; setNavOpen: (v: boolean) => void; onLock: () => void; setTenant: (t: Tenant) => void;
 }) {
   const fmt = useFmt(s);
   const { data: online } = usePoll<{ status: string }[]>(can(s.user, "online") ? "/online" : null, 8000);
@@ -123,7 +140,7 @@ function Shell({ s, screen, go, orderId, payNow, allowed, navOpen, setNavOpen, o
   );
 
   return (
-    <Pos.Provider value={{ s, fmt, go, orderId, payNow }}>
+    <Pos.Provider value={{ s, fmt, go, orderId, payNow, setTenant }}>
       <div className="flex h-dvh overflow-hidden bg-background">
         <aside className="hidden w-[232px] shrink-0 flex-col gap-1 bg-[#1d1c1a] px-3.5 py-[18px] text-white md:flex">{nav}</aside>
         {navOpen && (
@@ -148,6 +165,9 @@ function Shell({ s, screen, go, orderId, payNow, allowed, navOpen, setNavOpen, o
           <main className="relative min-h-0 flex-1">
             {screen === "floor" && <Floor />}
             {screen === "order" && <OrderScreen key={orderId ?? "none"} />}
+            {screen === "orders" && <OrdersScreen />}
+            {screen === "cash" && <CashScreen />}
+            {screen === "settings" && <SettingsScreen />}
             {screen === "online" && <Online />}
             {screen === "kds" && <Kitchen />}
             {screen === "dash" && <Dashboard />}

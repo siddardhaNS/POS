@@ -5,10 +5,10 @@ import { toast } from "sonner";
 import { Bike, Check, Plus } from "lucide-react";
 import { api } from "@/lib/api";
 import { cn } from "@/lib/utils";
-import type { Category, Order } from "./order";
+import type { Category, Order } from "./types";
 import { Seg, clock, run, useNow, usePoll, usePos } from "./shared";
 
-interface Ticket { id: string; number: number; created_at: string; title: string; channel: string; items: { id: string; name: string; qty: number; note: string; done: boolean }[] }
+interface Ticket { id: string; number: number; created_at: string; title: string; channel: string; items: { id: string; name: string; qty: number; note: string; done: boolean; modifiers: string[] }[] }
 
 export function Kitchen() {
   const now = useNow();
@@ -62,7 +62,9 @@ export function Kitchen() {
                   {t.items.map((i) => (
                     <button key={i.id} onClick={() => toggle(t, i)} className={cn("flex w-full items-center gap-3 py-3 text-left transition", i.done && "opacity-40")}>
                       <span className="font-mono text-lg font-semibold">{i.qty}</span>
-                      <span className={cn("flex-1 text-[15px]", i.done && "line-through")}>{i.name}{i.note && <span className="block text-xs text-saffron">{i.note}</span>}</span>
+                      <span className={cn("flex-1 text-[15px]", i.done && "line-through")}>{i.name}
+                        {i.modifiers.length > 0 && <span className="block text-xs text-[#d8d3c8]">+ {i.modifiers.join(" · ")}</span>}
+                        {i.note && <span className="block text-xs text-saffron">{i.note}</span>}</span>
                       {i.done && <Check className="size-4 text-leaf" />}
                     </button>
                   ))}
@@ -108,8 +110,9 @@ export function Online() {
   const [busy, setBusy] = useState(false);
   const label = (c: string) => CHANNELS[market].find(([k]) => k === c)?.[1] ?? c;
 
-  async function act(o: Order, a: "accept" | "reject") {
-    if (await run(api(`/online/${o.id}/${a}`, { method: "POST" }), a === "accept" ? "Accepted · KOT sent to kitchen" : "Order rejected")) reload();
+  async function act(o: Order, a: "accept" | "reject" | "complete") {
+    const msg = { accept: "Accepted · KOT sent to kitchen", reject: "Order rejected", complete: `#${o.number} handed over` }[a];
+    if (await run(api(`/online/${o.id}/${a}`, { method: "POST" }), msg)) reload();
   }
 
   async function simulate() {
@@ -157,7 +160,9 @@ export function Online() {
       <Column title="Preparing" count={prep.length}>
         {prep.map((o) => (
           <Card key={o.id} o={o} ch={label(o.channel)} fmt={fmt}
-            right={<span className="font-mono text-sm text-muted-foreground">{clock(now - new Date(o.opened_at).getTime())}</span>} />
+            right={<span className="font-mono text-sm text-muted-foreground">{clock(now - new Date(o.opened_at).getTime())}</span>}>
+            <button onClick={() => act(o, "complete")} className="mt-4 h-11 w-full rounded-xl bg-foreground font-semibold text-background">Handed to rider</button>
+          </Card>
         ))}
       </Column>
     </div>

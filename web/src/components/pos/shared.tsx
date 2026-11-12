@@ -2,10 +2,10 @@
 
 import { createContext, useCallback, useContext, useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
-import { api, money, type Session } from "@/lib/api";
+import { api, money, type Session, type Tenant } from "@/lib/api";
 import { cn } from "@/lib/utils";
 
-export type Screen = "floor" | "order" | "online" | "kds" | "dash" | "menu" | "staff";
+export type Screen = "floor" | "order" | "orders" | "cash" | "online" | "kds" | "dash" | "menu" | "staff" | "settings";
 
 export interface PosCtx {
   s: Session;
@@ -13,6 +13,28 @@ export interface PosCtx {
   go: (screen: Screen, opts?: { orderId?: string; pay?: boolean }) => void;
   payNow: boolean;
   orderId: string | null;
+  setTenant: (t: Tenant) => void;
+}
+
+export const METHOD_LABEL: Record<string, string> = {
+  cash: "Cash", card: "Card", upi: "UPI", tap: "Tap to pay", online: "Paid online", other: "Other", split: "Split", comp: "Comp",
+};
+
+/** Tender types offered at the register for this restaurant. */
+export const payMethods = (t: Tenant | null | undefined) =>
+  t?.currency === "INR" ? ["upi", "card", "cash", "other"] : ["tap", "card", "cash", "other"];
+
+export const round2 = (v: number) => Math.round(v * 100) / 100;
+
+export const STATUS_TONE: Record<string, string> = {
+  open: "bg-sky/15 text-sky", new: "bg-sky/15 text-sky", paid: "bg-leaf/15 text-[oklch(0.45_0.12_150)]",
+  refunded: "bg-saffron/20 text-saffron-deep", void: "bg-muted text-muted-foreground", rejected: "bg-muted text-muted-foreground",
+};
+
+export function orderTitle(o: { table: string | null; channel: string; number: number; customer_name?: string }) {
+  if (o.table) return `Table ${o.table.replace(/^T/, "")}`;
+  if (o.channel === "takeaway") return `Takeaway #${o.number}${o.customer_name ? " · " + o.customer_name : ""}`;
+  return `Order #${o.number}`;
 }
 
 export const Pos = createContext<PosCtx | null>(null);

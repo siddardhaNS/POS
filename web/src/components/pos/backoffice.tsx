@@ -2,19 +2,20 @@
 
 import { useState } from "react";
 import { toast } from "sonner";
-import { Plus, ScanText, Trash2, X } from "lucide-react";
+import { ListPlus, Plus, ScanText, Trash2, X } from "lucide-react";
+import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { api, can } from "@/lib/api";
 import { cn } from "@/lib/utils";
 import { NativeSelect } from "@/components/auth-shell";
 import { MenuImport } from "./menu-import";
-import type { Category, MenuItem } from "./order";
-import { Seg, VegDot, run, usePoll, usePos } from "./shared";
+import type { Category, MenuItem, ModGroup } from "./types";
+import { METHOD_LABEL, Seg, VegDot, run, usePoll, usePos } from "./shared";
 
 /* ---------------- Dashboard ---------------- */
 
-interface Kpi { net_sales: number; orders: number; avg_order: number; tips: number }
+interface Kpi { net_sales: number; orders: number; avg_order: number; tips: number; tax: number; discounts: number; refunds: number }
 interface Summary { current: Kpi; previous: Kpi; labels: string[]; series: number[]; payment_mix: Record<string, number>; channels: Record<string, number> }
 
 export function Dashboard() {
@@ -22,7 +23,6 @@ export function Dashboard() {
   const [range, setRange] = useState<"today" | "7d" | "30d">("today");
   const { data } = usePoll<Summary>(`/reports/summary?range=${range}`, 30000);
   const [hover, setHover] = useState<number | null>(null);
-  const US = s.tenant?.market === "US";
 
   const delta = (a: number, b: number) => (b ? `${a >= b ? "+" : "−"}${Math.abs(((a - b) / b) * 100).toFixed(1)}% vs previous` : "No prior data");
   const max = Math.max(1, ...(data?.series ?? [1]));
@@ -30,7 +30,9 @@ export function Dashboard() {
     { l: "Net sales", v: fmt(data.current.net_sales), d: delta(data.current.net_sales, data.previous.net_sales), up: data.current.net_sales >= data.previous.net_sales },
     { l: "Orders", v: String(data.current.orders), d: delta(data.current.orders, data.previous.orders), up: data.current.orders >= data.previous.orders },
     { l: "Avg order value", v: fmt(data.current.avg_order), d: delta(data.current.avg_order, data.previous.avg_order), up: data.current.avg_order >= data.previous.avg_order },
-    US ? { l: "Tips collected", v: fmt(data.current.tips), d: "Pooled by role", up: true } : { l: "GST collected", v: fmt(data.current.net_sales * (s.tenant?.tax_rate ?? 0)), d: "CGST + SGST", up: true },
+    s.tenant?.tips_enabled
+      ? { l: "Tips collected", v: fmt(data.current.tips), d: `Discounts ${fmt(data.current.discounts)} · refunds ${fmt(data.current.refunds)}`, up: true }
+      : { l: "Tax collected", v: fmt(data.current.tax), d: `Discounts ${fmt(data.current.discounts)} · refunds ${fmt(data.current.refunds)}`, up: true },
   ] : [];
 
   return (
@@ -68,7 +70,7 @@ export function Dashboard() {
           <div className="mt-4 space-y-3 text-sm">
             {data && Object.entries(data.payment_mix).length === 0 && <p className="text-muted-foreground">No paid checks in this period yet.</p>}
             {data && Object.entries(data.payment_mix).map(([k, v]) => (
-              <div key={k} className="flex justify-between"><span className="uppercase text-muted-foreground">{k}</span><span className="font-mono">{v} checks</span></div>
+              <div key={k} className="flex justify-between"><span className="text-muted-foreground">{METHOD_LABEL[k] ?? k}</span><span className="font-mono">{v} checks</span></div>
             ))}
             {data && Object.entries(data.channels).map(([k, v]) => (
               <div key={k} className="flex justify-between"><span className="capitalize text-muted-foreground">{k.replace("_", "-")}</span><span className="font-mono">{fmt(v)}</span></div>
@@ -91,6 +93,7 @@ export function MenuAdmin() {
   const [cat, setCat] = useState<string | null>(null);
   const [sel, setSel] = useState<MenuItem | null>(null);
   const [importing, setImporting] = useState(false);
+  const [options, setOptions] = useState<MenuItem | null>(null);
   const active = cat ?? menu?.[0]?.id ?? null;
   const cur = menu?.find((c) => c.id === active);
 
@@ -141,7 +144,7 @@ export function MenuAdmin() {
             </button>
           )}
           {edit && active && (
-            <button onClick={() => setSel({ id: "", category_id: active, name: "", price: 0, is_veg: true, station: "Curry", available: true })}
+            <button onClick={() => setSel({ id: "", category_id: active, name: "", price: 0, is_veg: true, station: "Curry", available: true, modifiers: [] })}
               className="flex items-center gap-1.5 rounded-xl bg-foreground px-3.5 py-2 text-sm font-medium text-background">
               <Plus className="size-4" />New item
             </button>
@@ -154,7 +157,8 @@ export function MenuAdmin() {
           {cur?.items.map((m) => (
             <div key={m.id} onClick={() => setSel({ ...m })} role="button"
               className={cn("grid cursor-pointer grid-cols-[1fr_90px_90px_60px] items-center gap-3 border-b border-border/60 px-5 py-3.5 last:border-0 hover:bg-muted/40", sel?.id === m.id && "bg-accent/60")}>
-              <span className="flex items-center gap-2.5 font-medium"><VegDot veg={m.is_veg} />{m.name}</span>
+              <span className="flex items-center gap-2.5 font-medium"><VegDot veg={m.is_veg} />{m.name}
+                {m.modifiers.length > 0 && <span className="rounded bg-accent px-1.5 text-[11px] font-medium text-accent-foreground">{m.modifiers.length} option set{m.modifiers.length > 1 ? "s" : ""}</span>}</span>
               <span className="font-mono text-sm">{fmt(m.price)}</span>
               <span className="text-sm text-muted-foreground">{m.station}</span>
               <button onClick={(e) => { e.stopPropagation(); toggle(m); }} aria-label="Toggle availability"
@@ -167,6 +171,7 @@ export function MenuAdmin() {
       </div>
 
       <MenuImport open={importing} onOpenChange={setImporting} onDone={reload} />
+      {options && <ModifierEditor item={options} onClose={() => setOptions(null)} onSaved={(m) => { setOptions(null); setSel(m); reload(); }} />}
       <aside className={cn("border-t border-border bg-card p-6 lg:border-l lg:border-t-0", !sel && "hidden lg:block")}>
         {!sel ? (
           <div className="grid h-full place-items-center text-center text-sm text-muted-foreground">Select an item to edit its price, station and availability.</div>
@@ -204,6 +209,22 @@ export function MenuAdmin() {
                 ))}
               </div>
             </fieldset>
+            {sel.id && (
+              <div className="space-y-2 rounded-2xl bg-muted/60 p-4">
+                <div className="flex items-center justify-between">
+                  <span className="font-medium">Options & add-ons</span>
+                  {edit && <button onClick={() => setOptions(sel)} className="flex items-center gap-1.5 rounded-lg bg-card px-3 py-1.5 text-sm font-medium ring-1 ring-border"><ListPlus className="size-4" />Edit</button>}
+                </div>
+                {sel.modifiers.length === 0 ? <p className="text-sm text-muted-foreground">None. Add sizes, spice levels or extras that staff pick when ordering.</p> : (
+                  sel.modifiers.map((g) => (
+                    <div key={g.id} className="text-sm">
+                      <span className="font-medium">{g.name}</span> <span className="text-muted-foreground">· {g.min ? "required" : "optional"}{g.max ? `, up to ${g.max}` : ""}</span>
+                      <div className="text-muted-foreground">{g.options.map((o) => o.price ? `${o.name} +${fmt(o.price)}` : o.name).join(" · ")}</div>
+                    </div>
+                  ))
+                )}
+              </div>
+            )}
             {edit ? (
               <div className="flex gap-2 pt-2">
                 {sel.id && <button onClick={remove} className="grid size-11 place-items-center rounded-xl bg-destructive/10 text-destructive"><Trash2 className="size-4" /></button>}
@@ -281,5 +302,65 @@ export function Staff() {
         <button className="h-11 w-full rounded-xl bg-foreground font-semibold text-background">Add to team</button>
       </form>
     </div>
+  );
+}
+
+/* ---------------- Modifier editor ---------------- */
+
+type DraftGroup = { name: string; required: boolean; max: number; options: { name: string; price: string }[] };
+
+function ModifierEditor({ item, onClose, onSaved }: { item: MenuItem; onClose: () => void; onSaved: (m: MenuItem) => void }) {
+  const { s } = usePos();
+  const [groups, setGroups] = useState<DraftGroup[]>(item.modifiers.map((g: ModGroup) => ({
+    name: g.name, required: g.min > 0, max: g.max, options: g.options.map((o) => ({ name: o.name, price: o.price ? String(o.price) : "" })),
+  })));
+  const upd = (i: number, p: Partial<DraftGroup>) => setGroups((gs) => gs.map((g, j) => (j === i ? { ...g, ...p } : g)));
+  const updOpt = (i: number, k: number, p: Partial<DraftGroup["options"][number]>) =>
+    upd(i, { options: groups[i].options.map((o, j) => (j === k ? { ...o, ...p } : o)) });
+
+  async function save() {
+    const body = {
+      groups: groups.map((g) => ({
+        name: g.name.trim(), min: g.required ? 1 : 0, max: g.max,
+        options: g.options.filter((o) => o.name.trim()).map((o) => ({ name: o.name.trim(), price: Number(o.price) || 0 })),
+      })).filter((g) => g.name && g.options.length),
+    };
+    const m = await run(api<MenuItem>(`/menu/items/${item.id}/modifiers`, { method: "PUT", body }), `Options saved for ${item.name}`);
+    if (m) onSaved(m);
+  }
+
+  return (
+    <Dialog open onOpenChange={(o) => !o && onClose()}>
+      <DialogContent className="max-h-[90vh] gap-5 overflow-y-auto sm:max-w-2xl">
+        <DialogHeader>
+          <DialogTitle className="text-xl">Options for {item.name}</DialogTitle>
+          <DialogDescription>Group choices like Size or Spice level. Option prices are added to the item price ({s.tenant?.currency}).</DialogDescription>
+        </DialogHeader>
+        {groups.map((g, i) => (
+          <div key={i} className="space-y-3 rounded-2xl border border-border p-4">
+            <div className="flex flex-wrap items-center gap-2">
+              <Input value={g.name} onChange={(e) => upd(i, { name: e.target.value })} placeholder="Group name, e.g. Size" className="h-10 min-w-40 flex-1 font-medium" maxLength={80} />
+              <Seg value={g.required ? "req" : "opt"} onChange={(v) => upd(i, { required: v === "req" })} options={[["req", "Required"], ["opt", "Optional"]]} />
+              <label className="flex items-center gap-2 text-sm text-muted-foreground">Max
+                <Input type="number" min={0} max={20} value={g.max} onChange={(e) => upd(i, { max: Number(e.target.value) || 0 })} className="h-10 w-16" />
+              </label>
+              <button onClick={() => setGroups(groups.filter((_, j) => j !== i))} className="grid size-10 place-items-center rounded-lg bg-destructive/10 text-destructive" aria-label="Remove group"><Trash2 className="size-4" /></button>
+            </div>
+            <p className="text-xs text-muted-foreground">{g.max === 1 ? "Staff pick exactly one." : g.max ? `Staff pick up to ${g.max}.` : "Staff pick as many as they like (max 0 = no limit)."}</p>
+            {g.options.map((o, k) => (
+              <div key={k} className="flex gap-2">
+                <Input value={o.name} onChange={(e) => updOpt(i, k, { name: e.target.value })} placeholder="Option, e.g. Large" className="h-10 flex-1" maxLength={80} />
+                <Input type="number" min={0} step="0.01" value={o.price} onChange={(e) => updOpt(i, k, { price: e.target.value })} placeholder="+ price" className="h-10 w-28 font-mono" />
+                <button onClick={() => upd(i, { options: g.options.filter((_, j) => j !== k) })} className="grid size-10 shrink-0 place-items-center rounded-lg bg-muted" aria-label="Remove option"><X className="size-4" /></button>
+              </div>
+            ))}
+            <button onClick={() => upd(i, { options: [...g.options, { name: "", price: "" }] })} className="text-sm font-medium text-saffron-deep">+ Add option</button>
+          </div>
+        ))}
+        <button onClick={() => setGroups([...groups, { name: "", required: false, max: 1, options: [{ name: "", price: "" }, { name: "", price: "" }] }])}
+          className="flex h-11 items-center justify-center gap-1.5 rounded-xl border-[1.5px] border-dashed border-border text-sm font-medium"><Plus className="size-4" />Add option group</button>
+        <button onClick={save} className="h-12 rounded-xl bg-foreground font-semibold text-background">Save options</button>
+      </DialogContent>
+    </Dialog>
   );
 }

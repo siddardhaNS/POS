@@ -14,6 +14,15 @@ export interface Tenant {
   tax_label: string;
   status: string;
   trial_ends_at: string | null;
+  phone?: string;
+  city?: string;
+  address?: string;
+  tax_id?: string;
+  timezone?: string;
+  tips_enabled?: boolean;
+  receipt_footer?: string;
+  auto_print_kot?: boolean;
+  auto_print_receipt?: boolean;
 }
 
 export interface SessionUser {
