@@ -11,8 +11,8 @@ import { Label } from "@/components/ui/label";
 import { api, session, type Session } from "@/lib/api";
 
 const DEMOS = [
-  { l: "India demo (owner)", e: "owner@tiffin.in", p: "demo12345" },
-  { l: "US demo (owner)", e: "owner@saffronsmoke.com", p: "demo12345" },
+  { l: "Demo owner (₹)", e: "owner@tiffin.in", p: "demo12345" },
+  { l: "Demo owner ($)", e: "owner@saffronsmoke.com", p: "demo12345" },
   { l: "Platform admin", e: "admin@tiffin.app", p: "admin12345" },
 ];
 

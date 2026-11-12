@@ -84,20 +84,20 @@ function SignupForm() {
         </p>
       </div>
 
-      <div className="grid grid-cols-2 gap-2 rounded-xl bg-muted p-1">
+      <div className="space-y-2"><Label>Billing currency</Label><div className="grid grid-cols-2 gap-2 rounded-xl bg-muted p-1">
         {(["IN", "US"] as const).map((m) => (
           <button type="button" key={m} onClick={() => setMarket(m)}
             className={cn("rounded-lg py-2 text-sm font-medium transition", market === m ? "bg-card shadow-sm" : "text-muted-foreground")}>
-            {m === "IN" ? "🇮🇳 India" : "🇺🇸 United States"}
+            {m === "IN" ? "₹ Rupee (INR)" : "$ Dollar (USD)"}
           </button>
         ))}
-      </div>
+      </div></div>
 
       <Section title="Restaurant">
-        <Field label="Restaurant name" name="restaurant_name" required placeholder={market === "IN" ? "e.g. Tiffin Indiranagar" : "e.g. Saffron & Smoke"} />
+        <Field label="Restaurant name" name="restaurant_name" required placeholder="e.g. Saffron & Smoke" />
         <div className="grid gap-4 sm:grid-cols-2">
-          <Field label="City" name="city" required placeholder={market === "IN" ? "Bengaluru" : "Jersey City, NJ"} />
-          <Field label="Cuisine" name="cuisine" placeholder="North Indian, South Indian…" />
+          <Field label="City" name="city" required placeholder="Your city" />
+          <Field label="Cuisine" name="cuisine" placeholder="e.g. Modern bistro, burgers, café…" />
         </div>
         <div className="grid gap-4 sm:grid-cols-2">
           <div className="space-y-2">
@@ -113,7 +113,7 @@ function SignupForm() {
       <Section title="You">
         <div className="grid gap-4 sm:grid-cols-2">
           <Field label="Your name" name="contact_name" required autoComplete="name" />
-          <Field label="Phone" name="phone" type="tel" autoComplete="tel" placeholder={market === "IN" ? "+91 98xxx xxxxx" : "+1 (555) 000-0000"} />
+          <Field label="Phone" name="phone" type="tel" autoComplete="tel" placeholder="Include country code" />
         </div>
         <Field label="Work email" name="email" type="email" required autoComplete="email" />
         <div className="grid gap-4 sm:grid-cols-2">

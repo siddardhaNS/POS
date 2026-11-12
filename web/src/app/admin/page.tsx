@@ -135,8 +135,8 @@ export default function AdminPage() {
           ))}
         </nav>
         <div className="mt-auto rounded-xl bg-white/[0.06] p-3 text-xs text-white/50">
-          <div className="flex justify-between"><span>Live in India</span><span className="font-mono text-white">{stats?.live_by_market.IN ?? 0}</span></div>
-          <div className="mt-1.5 flex justify-between"><span>Live in US</span><span className="font-mono text-white">{stats?.live_by_market.US ?? 0}</span></div>
+          <div className="flex justify-between"><span>Live · INR</span><span className="font-mono text-white">{stats?.live_by_market.IN ?? 0}</span></div>
+          <div className="mt-1.5 flex justify-between"><span>Live · USD</span><span className="font-mono text-white">{stats?.live_by_market.US ?? 0}</span></div>
           <div className="mt-1.5 flex justify-between"><span>Paid orders</span><span className="font-mono text-white">{stats?.paid_orders ?? 0}</span></div>
         </div>
         <button onClick={() => { session.clear(); router.push("/login"); }}
@@ -182,7 +182,7 @@ export default function AdminPage() {
 
         <div className="mt-6 overflow-hidden rounded-2xl border border-border bg-card">
           <div className="hidden grid-cols-[2fr_1.2fr_0.8fr_1fr_0.9fr] gap-4 border-b border-border px-5 py-3 font-mono text-[11px] uppercase tracking-[0.08em] text-muted-foreground md:grid">
-            <span>Restaurant</span><span>Contact</span><span>Market</span><span>Applied</span><span>Status</span>
+            <span>Restaurant</span><span>Contact</span><span>Currency</span><span>Applied</span><span>Status</span>
           </div>
           {rows.length === 0 && (
             <div className="px-5 py-16 text-center text-sm text-muted-foreground">
@@ -200,7 +200,7 @@ export default function AdminPage() {
                 <div className="truncate text-sm">{t.contact_name}</div>
                 <div className="truncate text-xs text-muted-foreground">{t.email}</div>
               </div>
-              <div className="hidden text-sm md:block">{t.market === "IN" ? "🇮🇳 India" : "🇺🇸 US"}</div>
+              <div className="hidden text-sm md:block">{t.market === "IN" ? "₹ INR" : "$ USD"}</div>
               <div className="hidden text-sm text-muted-foreground md:block">{ago(t.created_at)}</div>
               <div className="row-span-2 self-center md:row-span-1"><StatusPill s={t.status} /></div>
             </button>
@@ -218,7 +218,7 @@ export default function AdminPage() {
                   <StatusPill s={sel.status} />
                 </div>
                 <DialogDescription>
-                  {sel.market === "IN" ? "🇮🇳 India" : "🇺🇸 United States"} · {sel.service_style} · applied {fmtDate(sel.created_at)}
+                  {sel.market === "IN" ? "₹ INR" : "$ USD"} · {sel.service_style} · applied {fmtDate(sel.created_at)}
                 </DialogDescription>
               </DialogHeader>
               <div className="grid gap-3 rounded-xl bg-muted/60 p-4 text-sm sm:grid-cols-2">

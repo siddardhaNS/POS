@@ -87,7 +87,7 @@ function Shell({ s, screen, go, orderId, payNow, allowed, navOpen, setNavOpen, o
         <span className="grid size-[34px] place-items-center rounded-[10px] bg-saffron font-bold text-[#1d1c1a]">t</span>
         <div className="min-w-0">
           <div className="truncate font-semibold">{s.tenant?.name}</div>
-          <div className="text-[11.5px] text-white/45">{s.tenant?.market === "US" ? "🇺🇸 United States" : "🇮🇳 India"}</div>
+          <div className="text-[11.5px] text-white/45">{s.tenant?.market === "US" ? "USD · $" : "INR · ₹"}</div>
         </div>
       </div>
       {(["SERVICE", "MANAGE"] as const).map((g) => {
