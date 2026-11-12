@@ -119,6 +119,9 @@ export function Floor() {
                         <span className="text-2xl font-semibold">{t.name}</span>
                         {t.state !== "free" && <span className="font-mono text-sm font-semibold tabular">{fmt(t.total)}</span>}
                       </div>
+                      {t.state !== "unsent" && t.unsent > 0 && (
+                        <span className="mt-2 rounded-md bg-sky/15 px-2 py-0.5 text-xs font-semibold text-sky">{t.unsent} not sent</span>
+                      )}
                       <div className="mt-auto text-[13px] text-[#5d5a53]">
                         {t.state === "free" ? `${t.seats} seats` : `${st.label} · ${t.items} items${t.guests ? ` · ${t.guests} guests` : ""}`}
                         {t.paid > 0 && <span className="ml-1 font-medium text-[oklch(0.45_0.12_150)]">· part paid</span>}
@@ -137,7 +140,7 @@ export function Floor() {
           {timeline.map(({ t, age, late }) => {
             const w = t.state === "unsent" ? 18 : t.state === "kitchen" ? 45 : 80;
             const c = late ? "bg-chili" : STATE[t.state].dot;
-            const action = t.state === "unsent" ? "Send KOT" : late ? `Late · ${Math.floor(age)}m` : t.state === "kitchen" ? `In kitchen · ${Math.floor(age)}m` : can(s.user, "pay") ? "Take payment" : "Print bill";
+            const action = t.state === "unsent" || (t.unsent > 0 && t.state === "served") ? `Send ${t.unsent || ""} item${t.unsent === 1 ? "" : "s"}` : late ? `Late · ${Math.floor(age)}m` : t.state === "kitchen" ? `In kitchen · ${Math.floor(age)}m` : can(s.user, "pay") ? "Take payment" : "Print bill";
             return (
               <div key={t.id} onClick={() => open(t)} role="button"
                 className={cn("grid cursor-pointer grid-cols-[64px_1fr_auto] items-center gap-4 rounded-2xl border bg-card px-4 py-3.5 md:grid-cols-[72px_1fr_110px_160px]",
@@ -207,6 +210,7 @@ function PlanView({ tables, now, fmt, onOpen }: { tables: TableRow[]; now: numbe
                   ? <div className="text-[10px] opacity-60">{t.seats} seats</div>
                   : <div className="font-mono text-[11px] font-semibold">{fmt(t.total)}</div>}
                 {t.state === "kitchen" && <div className={cn("font-mono text-[10px]", late && "font-bold text-[#d0421b]")}>{mins}m</div>}
+                {t.state !== "unsent" && t.unsent > 0 && <div className="mt-0.5 rounded bg-[#3d6fb6] px-1 text-[9px] font-semibold text-white">{t.unsent} not sent</div>}
               </TableGlyph>
             </button>
           );

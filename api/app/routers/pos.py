@@ -137,20 +137,22 @@ def tables(ctx: Ctx = Depends(require("floor")), db: Session = Depends(get_db)):
     out = []
     for t in ts:
         o = by_table.get(t.id)
-        state = "free"
+        # Colour follows kitchen progress; items still waiting to be sent are counted separately.
+        state, unsent = "free", 0
         if o and o.items:
-            if any(i.kot_id is None for i in o.items):
-                state = "unsent"
-            elif o.id in kot_age:
+            unsent = sum(i.qty for i in o.items if i.kot_id is None)
+            if o.id in kot_age:
                 state = "kitchen"
-            else:
+            elif any(i.kot_id is not None for i in o.items):
                 state = "served"
+            else:
+                state = "unsent"
         out.append({
             "id": t.id, "name": t.name, "seats": t.seats, "section": t.section, "state": state,
             "shape": t.shape, "x": t.x, "y": t.y, "rotation": t.rotation,
             "order_id": o.id if o else None, "total": money(due(o)) if o else 0,
             "paid": money(o.paid) if o else 0, "guests": o.guests if o else 0,
-            "items": sum(i.qty for i in o.items) if o else 0,
+            "items": sum(i.qty for i in o.items) if o else 0, "unsent": unsent,
             "kitchen_since": kot_age[o.id].isoformat() if o and o.id in kot_age else None,
             "opened_at": o.opened_at.isoformat() if o else None,
         })
