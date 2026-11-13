@@ -72,6 +72,8 @@ class MenuCategory(Base):
     tenant_id: Mapped[str] = mapped_column(ForeignKey("tenants.id", ondelete="CASCADE"), index=True)
     name: Mapped[str] = mapped_column(String(80))
     sort: Mapped[int] = mapped_column(Integer, default=0)
+    # Course phase for the service timeline: drinks | starters | mains | sides | desserts ("" = guess from the name)
+    phase: Mapped[str] = mapped_column(String(12), default="")
 
 
 class MenuItem(Base):

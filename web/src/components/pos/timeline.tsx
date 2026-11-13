@@ -8,60 +8,49 @@ import type { TableRow } from "./types";
 
 /* ---------- Data (mirror GET /floor/timeline) ---------- */
 
-interface Fire { number: number; course: number; at: string; bumped_at: string | null }
+type Phase = "drinks" | "starters" | "mains" | "sides" | "desserts";
+interface Fire { number: number; course: number; at: string; bumped_at: string | null; phases: Phase[] }
 interface Check {
   order_id: string; number: number; status: string; guests: number; opened_at: string; closed_at: string | null;
   total: number; items: number; unsent: number; fires: Fire[];
+  phases: { phase: Phase; at: string }[]; current_phase: Phase | null; pending_phases: Phase[];
+  clears_at: string | null; clear_basis: { phase: Phase; minutes: number; samples: number; learned: boolean } | null;
 }
-interface TimelineData { now: string; day_start: string; timezone: string; tables: { id: string; name: string; seats: number; section: string; checks: Check[] }[] }
+interface TimelineData {
+  now: string; day_start: string; timezone: string; tables: { id: string; name: string; seats: number; section: string; checks: Check[] }[];
+  clear_minutes: Record<Phase, { minutes: number; samples: number; learned: boolean }>;
+}
+
+/** Colours for course phases on the bar. */
+export const PHASE: Record<Phase, { label: string; color: string; short: string }> = {
+  drinks: { label: "Drinks", color: "#4f9fb3", short: "Drinks" },
+  starters: { label: "Starters", color: "#e3a03a", short: "Starters" },
+  mains: { label: "Mains", color: "#d0662a", short: "Mains" },
+  sides: { label: "Sides", color: "#dc8a52", short: "Sides" },
+  desserts: { label: "Desserts", color: "#cf5f97", short: "Dessert" },
+};
+const SEATED = "#5b86c5";
+
+/** The open bar split by course phase: seated until the first fire, then each phase until the next one starts. */
+function phaseSpans(c: Check, now: number) {
+  const open = new Date(c.opened_at).getTime();
+  const marks = c.phases.map((p) => ({ phase: p.phase, at: new Date(p.at).getTime() })).sort((a, b) => a.at - b.at);
+  const out: { from: number; to: number; phase: Phase | "seated" }[] = [];
+  if (!marks.length) return [{ from: open, to: now, phase: "seated" as const }];
+  if (marks[0].at > open) out.push({ from: open, to: marks[0].at, phase: "seated" });
+  marks.forEach((m, i) => out.push({ from: m.at, to: i + 1 < marks.length ? marks[i + 1].at : now, phase: m.phase }));
+  return out.filter((x) => x.to > x.from);
+}
 
 type Stage = "seated" | "kitchen" | "late" | "served";
-interface Span { from: number; to: number; stage: Stage }
 
 const LATE_MIN = 15;
 const MIN = 60_000;
-const STAGE: Record<Stage, { bar: string; label: string }> = {
-  seated: { bar: "bg-sky", label: "Seated, nothing sent" },
-  kitchen: { bar: "bg-saffron", label: "In the kitchen" },
-  late: { bar: "bg-chili", label: `Kitchen over ${LATE_MIN} min` },
-  served: { bar: "bg-leaf", label: "Served" },
-};
-
-/** Split an open check into stages: seated until the first fire, then kitchen while a ticket is open, served in between. */
-function stages(c: Check, now: number): Span[] {
-  const open = new Date(c.opened_at).getTime();
-  const end = c.closed_at ? new Date(c.closed_at).getTime() : now;
-  const kitchen = c.fires
-    .map((f) => [new Date(f.at).getTime(), f.bumped_at ? new Date(f.bumped_at).getTime() : end] as [number, number])
-    .sort((a, b) => a[0] - b[0])
-    .reduce<[number, number][]>((acc, [a, b]) => {
-      const last = acc[acc.length - 1];
-      if (last && a <= last[1]) last[1] = Math.max(last[1], b);
-      else acc.push([a, b]);
-      return acc;
-    }, []);
-  const out: Span[] = [];
-  let t = open;
-  if (!kitchen.length) return [{ from: open, to: end, stage: "seated" }];
-  if (kitchen[0][0] > open) { out.push({ from: open, to: kitchen[0][0], stage: "seated" }); t = kitchen[0][0]; }
-  for (const [a, b] of kitchen) {
-    if (a > t) out.push({ from: t, to: a, stage: "served" });
-    const late = b - a > LATE_MIN * MIN;
-    if (late) {
-      out.push({ from: a, to: a + LATE_MIN * MIN, stage: "kitchen" });
-      out.push({ from: a + LATE_MIN * MIN, to: b, stage: "late" });
-    } else out.push({ from: a, to: b, stage: "kitchen" });
-    t = Math.max(t, b);
-  }
-  if (t < end) out.push({ from: t, to: end, stage: "served" });
-  return out;
-}
-
 const mins = (ms: number) => Math.max(0, Math.round(ms / MIN));
 const dur = (ms: number) => { const m = mins(ms); return m < 60 ? `${m}m` : `${Math.floor(m / 60)}h ${String(m % 60).padStart(2, "0")}m`; };
 
 type Window = "2" | "4" | "8" | "day";
-type Sort = "attention" | "table" | "longest";
+type Sort = "attention" | "clearing" | "table" | "longest";
 
 export function ServiceTimeline({ live, onOpen }: { live: TableRow[]; onOpen: (t: TableRow, pay?: boolean) => void }) {
   const { s, fmt } = usePos();
@@ -83,16 +72,18 @@ export function ServiceTimeline({ live, onOpen }: { live: TableRow[]; onOpen: (t
       .filter((t) => !section || t.section === section)
       .map((t) => {
         const open = t.checks.find((c) => c.status === "open") ?? null;
-        const segs = open ? stages(open, now) : [];
         const lastFire = open?.fires.filter((f) => !f.bumped_at).map((f) => new Date(f.at).getTime()).sort()[0];
         const kitchenFor = lastFire ? now - lastFire : 0;
         const late = kitchenFor > LATE_MIN * MIN;
         const stage: Stage | "free" = !open ? "free" : late ? "late" : lastFire ? "kitchen" : open.fires.length ? "served" : "seated";
         const pri = { late: 0, seated: 1, served: 2, kitchen: 3, free: 9 }[stage];
-        return { t, open, segs, stage, pri, kitchenFor, seatedFor: open ? now - new Date(open.opened_at).getTime() : 0, live: liveById.get(t.id) };
+        const clearsAt = open?.clears_at ? new Date(open.clears_at).getTime() : null;
+        return { t, open, stage, pri, kitchenFor, clearsAt, seatedFor: open ? now - new Date(open.opened_at).getTime() : 0, live: liveById.get(t.id) };
       })
       .filter((r) => showFree || r.open || r.t.checks.length)
-      .sort((a, b) => (sort === "table" ? 0 : sort === "longest" ? b.seatedFor - a.seatedFor : a.pri - b.pri || b.seatedFor - a.seatedFor));
+      .sort((a, b) => (sort === "table" ? 0 : sort === "longest" ? b.seatedFor - a.seatedFor
+        : sort === "clearing" ? (a.clearsAt ?? Infinity) - (b.clearsAt ?? Infinity)
+          : a.pri - b.pri || b.seatedFor - a.seatedFor));
   }, [data, live, now, section, showFree, sort]);
 
   if (!data) return <Empty>Loading the timeline…</Empty>;
@@ -115,12 +106,21 @@ export function ServiceTimeline({ live, onOpen }: { live: TableRow[]; onOpen: (t
   const longest = openRows.reduce((m, r) => Math.max(m, r.kitchenFor), 0);
   const guests = allOpen.reduce((a, c) => a + (c.guests || 0), 0);
   const sections = [...new Set(data.tables.map((t) => t.section))];
+  const OVERDUE = 30 * MIN; // well past the usual time: the estimate no longer says much
+  const soon = rows.filter((r) => r.clearsAt != null && r.clearsAt - now <= 15 * MIN && now - r.clearsAt < OVERDUE);
+  const clearText = (r: (typeof rows)[number]) => {
+    if (!r.open?.current_phase || r.clearsAt == null) return r.open ? (r.open.unsent ? "Order not sent yet" : "Nothing fired yet") : "";
+    const left = r.clearsAt - now;
+    const ph = PHASE[r.open.current_phase].short;
+    if (-left >= OVERDUE) return `${ph} · ${dur(-left)} past usual`;
+    return left <= 0 ? `${ph} · clearing any minute` : `${ph} · ~${time(r.clearsAt)} (${dur(left)})`;
+  };
 
   return (
     <div className="space-y-4">
       <div className="grid grid-cols-2 gap-3 lg:grid-cols-5">
         <Stat label="Tables seated" value={`${allOpen.length} / ${data.tables.length}`} sub={guests ? `${guests} guests` : "Guests not entered"} />
-        <Stat label="Average time seated" value={allOpen.length ? dur(avgSeated) : "—"} sub="Open checks right now" />
+        <Stat label="Clearing in 15 min" value={String(soon.length)} sub={soon.length ? soon.map((r) => r.t.name).join(", ") : `Average seated ${allOpen.length ? dur(avgSeated) : "—"}`} good={soon.length > 0} />
         <Stat label="Average table turn" value={closedToday.length ? dur(avgTurn) : "—"} sub={`${closedToday.length} check${closedToday.length === 1 ? "" : "s"} closed today`} />
         <Stat label="Waiting on the kitchen" value={String(rows.filter((r) => r.stage === "kitchen" || r.stage === "late").length)} sub={lateRows.length ? `${lateRows.length} over ${LATE_MIN} min` : "None late"} warn={lateRows.length > 0} />
         <Stat label="Longest kitchen wait" value={longest ? dur(longest) : "—"} sub="Oldest ticket still open" warn={longest > LATE_MIN * MIN} />
@@ -128,7 +128,7 @@ export function ServiceTimeline({ live, onOpen }: { live: TableRow[]; onOpen: (t
 
       <div className="flex flex-wrap items-center gap-3">
         <Seg value={win} onChange={setWin} options={[["2", "2 h"], ["4", "4 h"], ["8", "8 h"], ["day", "Today"]]} />
-        <Seg value={sort} onChange={setSort} options={[["attention", "Needs attention"], ["longest", "Seated longest"], ["table", "By table"]]} />
+        <Seg value={sort} onChange={setSort} options={[["attention", "Needs attention"], ["clearing", "Clearing soon"], ["longest", "Seated longest"], ["table", "By table"]]} />
         {sections.length > 1 && (
           <select value={section} onChange={(e) => setSection(e.target.value)} className="h-9 rounded-lg border border-input bg-card px-3 text-sm">
             <option value="">Every section</option>{sections.map((x) => <option key={x}>{x}</option>)}
@@ -136,7 +136,9 @@ export function ServiceTimeline({ live, onOpen }: { live: TableRow[]; onOpen: (t
         )}
         <label className="flex cursor-pointer items-center gap-2 text-sm text-muted-foreground"><input type="checkbox" checked={showFree} onChange={(e) => setShowFree(e.target.checked)} className="size-4 accent-foreground" />Show free tables</label>
         <div className="ml-auto flex flex-wrap gap-3 text-xs text-muted-foreground">
-          {(Object.keys(STAGE) as Stage[]).map((k) => <span key={k} className="flex items-center gap-1.5"><span className={cn("h-2.5 w-4 rounded-sm", STAGE[k].bar)} />{STAGE[k].label}</span>)}
+          <span className="flex items-center gap-1.5"><span className="h-2.5 w-4 rounded-sm" style={{ background: SEATED }} />Seated</span>
+          {(Object.keys(PHASE) as Phase[]).filter((p) => p !== "sides").map((p) => <span key={p} className="flex items-center gap-1.5"><span className="h-2.5 w-4 rounded-sm" style={{ background: PHASE[p].color }} />{PHASE[p].label}</span>)}
+          <span className="flex items-center gap-1.5"><span className="h-2.5 w-4 rounded-sm ring-2 ring-chili" />Kitchen late</span>
           <span className="flex items-center gap-1.5"><span className="h-2.5 w-4 rounded-sm bg-[#d8d2c7]" />Earlier checks</span>
         </div>
       </div>
@@ -145,10 +147,10 @@ export function ServiceTimeline({ live, onOpen }: { live: TableRow[]; onOpen: (t
         <div className="overflow-x-auto rounded-2xl border border-border bg-card">
           <div className="min-w-[760px]">
             {/* axis */}
-            <div className="grid grid-cols-[120px_1fr_150px] border-b border-border text-[11px] text-muted-foreground">
+            <div className="grid grid-cols-[120px_1fr_200px] border-b border-border text-[11px] text-muted-foreground">
               <div className="px-4 py-2">Table</div>
               <div className="relative h-8">
-                {ticks.map((t) => <span key={t} className="absolute top-2 -translate-x-1/2 whitespace-nowrap" style={{ left: `${pct(t)}%` }}>{time(t)}</span>)}
+                {ticks.filter((t) => pct(now) - pct(t) > 7).map((t) => <span key={t} className="absolute top-2 -translate-x-1/2 whitespace-nowrap" style={{ left: `${pct(t)}%` }}>{time(t)}</span>)}
                 <span className="absolute top-2 -translate-x-1/2 font-semibold text-foreground" style={{ left: `${pct(now)}%` }}>Now</span>
               </div>
               <div />
@@ -159,7 +161,7 @@ export function ServiceTimeline({ live, onOpen }: { live: TableRow[]; onOpen: (t
                 : r.stage === "late" ? `Chase kitchen · ${dur(r.kitchenFor)}` : r.stage === "kitchen" ? `In kitchen · ${dur(r.kitchenFor)}`
                   : can(s.user, "pay") ? "Take payment" : "Print bill";
               return (
-                <div key={r.t.id} className={cn("grid grid-cols-[120px_1fr_150px] items-center border-b border-border/60 last:border-0", r.stage === "late" && "bg-destructive/[0.04]")}>
+                <div key={r.t.id} className={cn("grid grid-cols-[120px_1fr_200px] items-center border-b border-border/60 last:border-0", r.stage === "late" && "bg-destructive/[0.04]")}>
                   <button onClick={() => lt && onOpen(lt)} className="px-4 py-3 text-left">
                     <div className="font-semibold">{r.t.name}</div>
                     <div className="text-[11px] text-muted-foreground">{r.open ? `${r.open.guests ? `${r.open.guests} guests · ` : ""}${dur(r.seatedFor)}` : `${r.t.seats} seats`}</div>
@@ -179,13 +181,20 @@ export function ServiceTimeline({ live, onOpen }: { live: TableRow[]; onOpen: (t
                       );
                     })}
                     {r.open && (
-                      <button onClick={() => lt && onOpen(lt)} className="absolute top-1/2 flex h-7 -translate-y-1/2 overflow-hidden rounded-lg ring-1 ring-black/5"
+                      <button onClick={() => lt && onOpen(lt)} className={cn("absolute top-1/2 flex h-7 -translate-y-1/2 overflow-hidden rounded-lg", r.stage === "late" ? "ring-2 ring-chili ring-offset-1" : "ring-1 ring-black/5")}
                         style={{ left: `${pct(new Date(r.open.opened_at).getTime())}%`, width: `${Math.max(1, pct(now) - pct(new Date(r.open.opened_at).getTime()))}%` }}
-                        title={[`#${r.open.number} · seated ${time(new Date(r.open.opened_at).getTime())}`, ...r.open.fires.map((f) => `Fire ${f.course ? `course ${f.course}` : `KOT ${f.number}`} at ${time(new Date(f.at).getTime())}${f.bumped_at ? `, done ${time(new Date(f.bumped_at).getTime())}` : ""}`), `${fmt(r.open.total)} so far`].join("\n")}>
-                        {r.segs.filter((g) => g.to > start).map((g, i) => {
+                        title={[`#${r.open.number} · seated ${time(new Date(r.open.opened_at).getTime())}`,
+                          ...phaseSpans(r.open, now).filter((p) => p.phase !== "seated").map((p) => `${PHASE[p.phase as Phase].label} from ${time(p.from)} · ${dur(p.to - p.from)}`), ...r.open.fires.map((f) => `Fire ${f.course ? `course ${f.course}` : `KOT ${f.number}`} at ${time(new Date(f.at).getTime())}${f.bumped_at ? `, done ${time(new Date(f.bumped_at).getTime())}` : ""}`), `${fmt(r.open.total)} so far`].join("\n")}>
+                        {phaseSpans(r.open, now).filter((g) => g.to > start).map((g, i, all) => {
                           const total = Math.max(1, now - Math.max(start, new Date(r.open!.opened_at).getTime()));
                           const w = ((Math.min(g.to, now) - Math.max(g.from, start)) / total) * 100;
-                          return <span key={i} className={cn("h-full", STAGE[g.stage].bar)} style={{ width: `${Math.max(0, w)}%` }} />;
+                          const label = g.phase === "seated" ? "Seated" : PHASE[g.phase].short;
+                          return (
+                            <span key={i} className={cn("flex h-full items-center overflow-hidden whitespace-nowrap px-1.5 text-[10.5px] font-semibold text-white", i === 0 && all.length && new Date(r.open!.opened_at).getTime() < start && "pl-4")}
+                              style={{ width: `${Math.max(0, w)}%`, background: g.phase === "seated" ? SEATED : PHASE[g.phase].color }}>
+                              {w > 9 ? label : ""}
+                            </span>
+                          );
                         })}
                         {r.open.fires.map((f) => {
                           const a0 = Math.max(start, new Date(r.open!.opened_at).getTime());
@@ -196,7 +205,8 @@ export function ServiceTimeline({ live, onOpen }: { live: TableRow[]; onOpen: (t
                       </button>
                     )}
                   </div>
-                  <div className="px-3">
+                  <div className="px-3 py-1.5">
+                    {r.open && <div className={cn("mb-1 truncate text-[11px]", r.clearsAt != null && r.clearsAt - now <= 15 * MIN && now - r.clearsAt < OVERDUE ? "font-semibold text-[oklch(0.45_0.12_150)]" : r.clearsAt != null && now - r.clearsAt >= OVERDUE ? "text-saffron-deep" : "text-muted-foreground")} title={r.open.clear_basis ? (r.open.clear_basis.learned ? `Based on ${r.open.clear_basis.samples} of your checks: tables close about ${Math.round(r.open.clear_basis.minutes)} min after ${PHASE[r.open.clear_basis.phase].label.toLowerCase()} go out` : `Typical estimate (${Math.round(r.open.clear_basis.minutes)} min after ${PHASE[r.open.clear_basis.phase].label.toLowerCase()}); it learns from your own checks over time`) : undefined}>{clearText(r)}</div>}
                     {r.open && lt && action ? (
                       <button onClick={() => onOpen(lt, r.stage === "served" && r.open!.unsent === 0)}
                         className={cn("w-full rounded-xl px-3 py-2 text-[12.5px] font-semibold",
@@ -212,16 +222,20 @@ export function ServiceTimeline({ live, onOpen }: { live: TableRow[]; onOpen: (t
           </div>
         </div>
       )}
-      <p className="text-xs text-muted-foreground">Each bar runs from seating to now. White ticks are fires to the kitchen; hover a bar for the times. Grey bars are checks already closed today.</p>
+      <p className="text-xs text-muted-foreground">
+        Each bar runs from seating to now, coloured by the course the table is on: it moves to the next colour when that course is sent to the kitchen.
+        White ticks are fires; hover a bar for the times. Clear times come from how long your tables usually stay after each course
+        {Object.values(data.clear_minutes).some((c) => c.learned) ? "" : " (typical times until there is enough history)"}. Course types are set per menu category in Menu.
+      </p>
     </div>
   );
 }
 
-function Stat({ label, value, sub, warn }: { label: string; value: string; sub?: string; warn?: boolean }) {
+function Stat({ label, value, sub, warn, good }: { label: string; value: string; sub?: string; warn?: boolean; good?: boolean }) {
   return (
     <div className="rounded-2xl border border-border bg-card p-4">
       <div className="text-sm text-muted-foreground">{label}</div>
-      <div className={cn("mt-1 font-mono text-xl font-semibold tabular", warn && "text-destructive")}>{value}</div>
+      <div className={cn("mt-1 font-mono text-xl font-semibold tabular", warn && "text-destructive", good && "text-[oklch(0.45_0.12_150)]")}>{value}</div>
       {sub && <div className="mt-0.5 text-xs text-muted-foreground">{sub}</div>}
     </div>
   );

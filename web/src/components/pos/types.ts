@@ -4,7 +4,7 @@ export interface MenuItem {
   id: string; category_id: string; name: string; price: number; is_veg: boolean; station: string; available: boolean;
   modifiers: ModGroup[];
 }
-export interface Category { id: string; name: string; items: MenuItem[] }
+export interface Category { id: string; name: string; phase: string; phase_set: boolean; items: MenuItem[] }
 
 export interface Modifier { group: string; name: string; price: number }
 export interface Line {

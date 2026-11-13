@@ -17,6 +17,8 @@ import { Seg, VegDot, run, usePoll, usePos } from "./shared";
 
 const STATIONS = ["Curry", "Tandoor", "Fry", "Cold", "Bar", "Kitchen"];
 
+const COURSE_LABEL: Record<string, string> = { drinks: "Drinks", starters: "Starters", mains: "Mains", sides: "Sides", desserts: "Desserts" };
+
 export function MenuAdmin() {
   const { s, fmt } = usePos();
   const edit = can(s.user, "menu_edit");
@@ -81,6 +83,22 @@ export function MenuAdmin() {
             </button>
           )}
         </div>
+        {cur && (
+          <div className="flex flex-wrap items-center gap-2 text-sm">
+            <span className="text-muted-foreground">Course type for {cur.name}</span>
+            <select value={cur.phase_set ? cur.phase : ""} disabled={!edit}
+              onChange={async (e) => {
+                const phase = e.target.value;
+                const r = await run(api<{ phase: string; phase_set: boolean }>(`/menu/categories/${cur.id}`, { method: "PATCH", body: { phase } }), "Course type saved");
+                if (r) setData((d) => d && d.map((c) => (c.id === cur.id ? { ...c, phase: r.phase, phase_set: r.phase_set } : c)));
+              }}
+              className="h-9 rounded-lg border border-input bg-card px-2.5 text-sm">
+              <option value="">Automatic ({COURSE_LABEL[cur.phase] ?? cur.phase})</option>
+              {Object.entries(COURSE_LABEL).map(([k, l]) => <option key={k} value={k}>{l}</option>)}
+            </select>
+            <span className="text-xs text-muted-foreground">Used on the Floor timeline to show which course each table is on and when it will clear.</span>
+          </div>
+        )}
         <div className="overflow-hidden rounded-2xl border border-border bg-card">
           <div className="grid grid-cols-[1fr_90px_90px_60px] gap-3 border-b border-border px-5 py-3 font-mono text-[11px] uppercase tracking-[0.08em] text-muted-foreground">
             <span>Item</span><span>Price</span><span>Station</span><span>Live</span>

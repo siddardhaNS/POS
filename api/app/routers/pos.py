@@ -12,7 +12,8 @@ from sqlalchemy.orm import Session, selectinload
 from ..db import get_db
 from ..deps import PERMISSIONS, Ctx, has_module, needs, require
 from ..live import ALL_TOPICS, audit
-from ..models import DiningTable, Kot, LiveRev, MenuItem, ModifierGroup, Order, OrderItem, Payment, Tenant, now
+from .. import phases
+from ..models import DiningTable, Kot, LiveRev, MenuCategory, MenuItem, ModifierGroup, Order, OrderItem, Payment, Tenant, now
 from ..stock import deduct_for_order
 
 router = APIRouter(tags=["pos"])
@@ -162,29 +163,75 @@ def tables(ctx: Ctx = Depends(require("floor")), db: Session = Depends(get_db)):
 
 @router.get("/floor/timeline")
 def floor_timeline(ctx: Ctx = Depends(require("floor")), db: Session = Depends(get_db)):
-    """Today's dine-in checks per table, with each kitchen fire, for the service timeline."""
+    """Today's dine-in checks per table with each kitchen fire, the course phases they reached, and when each open
+    table is expected to clear (learned from the last 30 days of closed checks)."""
     tz = tenant_tz(ctx.tenant)
     today = datetime.now(tz).date()
     start = datetime(today.year, today.month, today.day, tzinfo=tz)
+    cats = {c.id: phases.effective(c.phase, c.name) for c in db.scalars(select(MenuCategory).where(MenuCategory.tenant_id == ctx.tenant_id))}
+    item_phase = {mid: cats.get(cid, "mains") for mid, cid in db.execute(
+        select(MenuItem.id, MenuItem.category_id).where(MenuItem.tenant_id == ctx.tenant_id)).all()}
+
+    def phase_starts(o: Order, kots: dict[str, Kot]) -> dict[str, datetime]:
+        """First time each phase was fired to the kitchen on this check."""
+        first: dict[str, datetime] = {}
+        for i in o.items:
+            k = kots.get(i.kot_id) if i.kot_id else None
+            if not k:
+                continue
+            p = item_phase.get(i.menu_item_id or "", "mains")
+            if p not in first or k.created_at < first[p]:
+                first[p] = k.created_at
+        return first
+
+    # History: minutes from each phase's first fire to the check closing, last 30 days.
+    hist = db.scalars(select(Order).where(
+        Order.tenant_id == ctx.tenant_id, Order.table_id.is_not(None), Order.status.in_(("paid", "refunded")),
+        Order.closed_at >= now() - timedelta(days=30)).options(selectinload(Order.items)).order_by(Order.closed_at.desc()).limit(1500)).all()
+    hist_kots = {k.id: k for k in db.scalars(select(Kot).where(Kot.tenant_id == ctx.tenant_id, Kot.order_id.in_([o.id for o in hist] or [""])))}
+    samples: dict[str, list[float]] = {}
+    for o in hist:
+        for p, at in phase_starts(o, hist_kots).items():
+            m = (o.closed_at - at).total_seconds() / 60
+            if 0 < m < 360:
+                samples.setdefault(p, []).append(m)
+    clear = phases.clear_minutes(samples)
     ts = db.scalars(select(DiningTable).where(DiningTable.tenant_id == ctx.tenant_id).order_by(DiningTable.sort)).all()
     orders = db.scalars(select(Order).where(
         Order.tenant_id == ctx.tenant_id, Order.table_id.is_not(None), Order.status.notin_(("merged", "rejected")),
         or_(Order.status == "open", Order.opened_at >= start)).options(selectinload(Order.items))).all()
     fires: dict[str, list[dict]] = {}
+    kots: dict[str, Kot] = {}
     if orders:
         for k in db.scalars(select(Kot).where(Kot.tenant_id == ctx.tenant_id, Kot.order_id.in_([o.id for o in orders]))
-                            .order_by(Kot.created_at)):
+                            .options(selectinload(Kot.items)).order_by(Kot.created_at)):
+            kots[k.id] = k
+            ph = sorted({item_phase.get(i.menu_item_id or "", "mains") for i in k.items}, key=lambda p: phases.RANK[p])
             fires.setdefault(k.order_id, []).append({"number": k.number, "course": k.course, "at": k.created_at.isoformat(),
-                                                     "bumped_at": k.bumped_at.isoformat() if k.bumped_at else None})
+                                                     "bumped_at": k.bumped_at.isoformat() if k.bumped_at else None, "phases": ph})
+
+    def phase_info(o: Order) -> dict:
+        starts = phase_starts(o, kots)
+        ordered = sorted(starts.items(), key=lambda kv: kv[1])
+        current = max(starts, key=lambda p: (phases.RANK[p], starts[p])) if starts else None
+        pending = sorted({item_phase.get(i.menu_item_id or "", "mains") for i in o.items if i.kot_id is None}, key=lambda p: phases.RANK[p])
+        out = {"phases": [{"phase": p, "at": at.isoformat()} for p, at in ordered], "current_phase": current,
+               "pending_phases": pending, "clears_at": None, "clear_basis": None}
+        if current and o.status == "open":
+            est = clear[current]
+            out["clears_at"] = (starts[current] + timedelta(minutes=est["minutes"])).isoformat()
+            out["clear_basis"] = {"phase": current, **est}
+        return out
     by_table: dict[str, list[dict]] = {}
     for o in sorted(orders, key=lambda x: x.opened_at):
         by_table.setdefault(o.table_id, []).append({
             "order_id": o.id, "number": o.number, "status": o.status, "guests": o.guests,
             "opened_at": o.opened_at.isoformat(), "closed_at": o.closed_at.isoformat() if o.closed_at else None,
             "total": money(due(o)), "items": sum(i.qty for i in o.items), "unsent": sum(i.qty for i in o.items if i.kot_id is None),
-            "fires": fires.get(o.id, []),
+            "fires": fires.get(o.id, []), **phase_info(o),
         })
-    return {"now": now().isoformat(), "day_start": start.isoformat(), "timezone": tz.key,
+    return {"now": now().isoformat(), "day_start": start.isoformat(), "timezone": tz.key, "clear_minutes": clear,
+            "phase_labels": phases.LABEL,
             "tables": [{"id": t.id, "name": t.name, "seats": t.seats, "section": t.section, "checks": by_table.get(t.id, [])}
                        for t in ts]}
 

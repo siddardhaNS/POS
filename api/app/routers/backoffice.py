@@ -8,6 +8,7 @@ from pydantic import BaseModel, Field
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session, selectinload
 
+from .. import phases
 from ..db import get_db
 from ..deps import Ctx, require
 from ..live import audit
@@ -48,8 +49,8 @@ def _menu(ctx: Ctx, db: Session):
     for g in db.scalars(select(ModifierGroup).where(ModifierGroup.tenant_id == ctx.tenant_id)
                         .options(selectinload(ModifierGroup.options)).order_by(ModifierGroup.sort)):
         groups.setdefault(g.menu_item_id, []).append(g)
-    return [{"id": c.id, "name": c.name, "items": [item_out(m, groups.get(m.id)) for m in items if m.category_id == c.id]}
-            for c in cats]
+    return [{"id": c.id, "name": c.name, "phase": phases.effective(c.phase, c.name), "phase_set": c.phase in phases.PHASES,
+             "items": [item_out(m, groups.get(m.id)) for m in items if m.category_id == c.id]} for c in cats]
 
 
 class CategoryIn(BaseModel):
@@ -62,7 +63,25 @@ def add_category(body: CategoryIn, ctx: Ctx = Depends(require("menu_edit")), db:
     c = MenuCategory(tenant_id=ctx.tenant_id, name=body.name.strip(), sort=n)
     db.add(c)
     db.commit()
-    return {"id": c.id, "name": c.name, "items": []}
+    return {"id": c.id, "name": c.name, "phase": phases.effective(c.phase, c.name), "phase_set": False, "items": []}
+
+
+class CategoryPatch(BaseModel):
+    name: str | None = Field(default=None, min_length=1, max_length=80)
+    phase: str | None = Field(default=None, pattern=r"^(|drinks|starters|mains|sides|desserts)$")  # "" = guess
+
+
+@router.patch("/menu/categories/{cid}")
+def edit_category(cid: str, body: CategoryPatch, ctx: Ctx = Depends(require("menu_edit")), db: Session = Depends(get_db)):
+    c = db.scalar(select(MenuCategory).where(MenuCategory.id == cid, MenuCategory.tenant_id == ctx.tenant_id))
+    if not c:
+        raise HTTPException(404, "Category not found")
+    if body.name is not None:
+        c.name = body.name.strip()
+    if body.phase is not None:
+        c.phase = body.phase
+    db.commit()
+    return {"id": c.id, "name": c.name, "phase": phases.effective(c.phase, c.name), "phase_set": c.phase in phases.PHASES}
 
 
 class ItemIn(BaseModel):

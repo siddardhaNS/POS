@@ -59,6 +59,9 @@ COLUMNS: dict[str, list[tuple[str, str, str | None]]] = {
         ("details", "JSON NOT NULL DEFAULT '{}'", None),
         ("custom_fields", "JSON NOT NULL DEFAULT '[]'", None),
     ],
+    "menu_categories": [
+        ("phase", "VARCHAR(12) NOT NULL DEFAULT ''", None),
+    ],
     "floor_sections": [
         ("layout", "JSON NOT NULL DEFAULT '{}'", None),
     ],
