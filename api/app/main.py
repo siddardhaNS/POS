@@ -7,7 +7,7 @@ from .config import settings
 from .db import SessionLocal, engine
 from .migrate import migrate
 from . import live  # noqa: F401  (registers the change-tracking listener)
-from .routers import admin, auth, backoffice, cash, inventory, menu_import, pos, printing, reports
+from .routers import admin, auth, backoffice, cash, inventory, leads, menu_import, pos, printing, reports
 from .seed import bootstrap
 
 
@@ -34,7 +34,7 @@ app.add_middleware(
 )
 
 for r in (auth.router, admin.router, pos.router, cash.router, menu_import.router, backoffice.router, printing.router,
-          reports.router, inventory.router):
+          reports.router, inventory.router, leads.router):
     app.include_router(r)
 
 

@@ -3,9 +3,10 @@
 import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { toast } from "sonner";
-import { Ban, Building2, Check, Clock, KeyRound, LogOut, Mail, MapPin, Phone, Play, Search, Store, X } from "lucide-react";
+import { Ban, Building2, Check, Clock, KeyRound, LogOut, Mail, MapPin, Phone, Play, Search, Store, Target, X } from "lucide-react";
 import { Logo } from "@/components/brand";
 import { ChangePasswordDialog } from "@/components/change-password";
+import { LeadsPanel } from "@/components/admin/leads";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
@@ -52,6 +53,7 @@ export default function AdminPage() {
   const router = useRouter();
   const [ready, setReady] = useState(false);
   const [pwOpen, setPwOpen] = useState(false);
+  const [view, setView] = useState<"restaurants" | "leads">("restaurants");
   const [filter, setFilter] = useState("pending");
   const [q, setQ] = useState("");
   const [rows, setRows] = useState<TenantRow[]>([]);
@@ -147,13 +149,21 @@ export default function AdminPage() {
         <div className="mt-8 font-mono text-[10.5px] tracking-[0.08em] text-white/40">RESTAURANTS</div>
         <nav className="mt-2 space-y-0.5">
           {FILTERS.map((f) => (
-            <button key={f.k} onClick={() => setFilter(f.k)}
+            <button key={f.k} onClick={() => { setFilter(f.k); setView("restaurants"); }}
               className={cn("flex w-full items-center justify-between rounded-lg px-3 py-2.5 text-left text-[13.5px] transition",
-                filter === f.k ? "bg-white/12 text-white" : "text-white/55 hover:text-white")}>
+                view === "restaurants" && filter === f.k ? "bg-white/12 text-white" : "text-white/55 hover:text-white")}>
               {f.l}
               {f.k && stats && <span className="font-mono text-xs text-white/40">{stats.by_status[f.k] ?? 0}</span>}
             </button>
           ))}
+        </nav>
+        <div className="mt-6 font-mono text-[10.5px] tracking-[0.08em] text-white/40">SALES</div>
+        <nav className="mt-2">
+          <button onClick={() => setView("leads")}
+            className={cn("flex w-full items-center gap-2 rounded-lg px-3 py-2.5 text-left text-[13.5px] transition",
+              view === "leads" ? "bg-white/12 text-white" : "text-white/55 hover:text-white")}>
+            <Target className="size-4" />Leads
+          </button>
         </nav>
         <div className="mt-auto rounded-xl bg-white/[0.06] p-3 text-xs text-white/50">
           <div className="flex justify-between"><span>Live · INR</span><span className="font-mono text-white">{stats?.live_by_market.IN ?? 0}</span></div>
@@ -172,6 +182,12 @@ export default function AdminPage() {
       </aside>
 
       <main className="min-w-0 flex-1 px-5 py-8 md:px-10">
+        <div className="mb-5 flex gap-2 md:hidden">
+          {(["restaurants", "leads"] as const).map((v) => (
+            <button key={v} onClick={() => setView(v)} className={cn("h-9 rounded-lg px-3 text-sm font-medium capitalize ring-1", view === v ? "bg-foreground text-background ring-foreground" : "bg-card ring-border")}>{v}</button>
+          ))}
+        </div>
+        {view === "leads" ? <LeadsPanel /> : (<>
         <div className="flex flex-wrap items-end gap-4">
           <div>
             <h1 className="text-2xl font-semibold tracking-tight">Restaurants</h1>
@@ -232,6 +248,7 @@ export default function AdminPage() {
             </button>
           ))}
         </div>
+        </>)}
       </main>
 
       <Dialog open={!!sel} onOpenChange={(o) => !o && setSel(null)}>

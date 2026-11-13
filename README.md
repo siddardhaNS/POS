@@ -47,6 +47,7 @@ Create two Vercel projects from this repo:
 
 1. **API**: root directory `api/` (uses `index.py` + `vercel.json`). Env vars:
    `DATABASE_URL` (Neon / Vercel Postgres), `JWT_SECRET`, `PLATFORM_ADMIN_EMAIL`, `PLATFORM_ADMIN_PASSWORD`,
-   `CORS_ORIGINS=https://<your-web-domain>`, `SEED_DEMO=false`, `ANTHROPIC_API_KEY` (menu OCR).
+   `CORS_ORIGINS=https://<your-web-domain>`, `SEED_DEMO=false`, `ANTHROPIC_API_KEY` (menu OCR),
+   `GOOGLE_PLACES_API_KEY` (optional: Google results in Leads; OpenStreetMap works without it).
    Menu scans can take up to a minute, so raise the function's max duration if your plan allows.
 2. **Web**: root directory `web/`. Env var: `NEXT_PUBLIC_API_URL=https://<your-api>.vercel.app`.

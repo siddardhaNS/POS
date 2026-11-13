@@ -431,3 +431,49 @@ class InventoryAuto86(Base):
     tenant_id: Mapped[str] = mapped_column(ForeignKey("tenants.id", ondelete="CASCADE"), primary_key=True)
     menu_item_id: Mapped[str] = mapped_column(ForeignKey("menu_items.id", ondelete="CASCADE"), primary_key=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now)
+
+
+# ---------- Sales leads (platform admin) ----------
+
+class Lead(Base):
+    """A restaurant Tiffin could sell to, found on OpenStreetMap / Google Places or added by hand."""
+    __tablename__ = "leads"
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=uid)
+    osm_id: Mapped[str | None] = mapped_column(String(40), nullable=True, index=True)  # "node/123"
+    google_place_id: Mapped[str | None] = mapped_column(String(300), nullable=True, index=True)
+    name: Mapped[str] = mapped_column(String(200))
+    category: Mapped[str] = mapped_column(String(80), default="")
+    cuisine: Mapped[str] = mapped_column(String(200), default="")
+    address: Mapped[str] = mapped_column(Text, default="")
+    area: Mapped[str] = mapped_column(String(120), default="")
+    city: Mapped[str] = mapped_column(String(120), default="", index=True)
+    postcode: Mapped[str] = mapped_column(String(20), default="")
+    lat: Mapped[float | None] = mapped_column(Numeric(10, 7), nullable=True)
+    lon: Mapped[float | None] = mapped_column(Numeric(10, 7), nullable=True)
+    phone: Mapped[str] = mapped_column(String(60), default="")
+    website: Mapped[str] = mapped_column(String(300), default="")
+    email: Mapped[str] = mapped_column(String(200), default="")
+    contact_name: Mapped[str] = mapped_column(String(120), default="")
+    rating: Mapped[float | None] = mapped_column(Numeric(3, 1), nullable=True)
+    reviews: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    opening_hours: Mapped[str] = mapped_column(Text, default="")
+    sources: Mapped[list] = mapped_column(JSON, default=list)  # ["osm", "google", "manual"]
+    # new | contacted | interested | demo | won | lost | not_fit
+    status: Mapped[str] = mapped_column(String(12), default="new", index=True)
+    follow_up_on: Mapped[date | None] = mapped_column(Date, nullable=True, index=True)
+    notes: Mapped[str] = mapped_column(Text, default="")
+    tenant_id: Mapped[str | None] = mapped_column(ForeignKey("tenants.id", ondelete="SET NULL"), nullable=True)
+    last_contacted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now, index=True)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now)
+    activities: Mapped[list["LeadActivity"]] = relationship(cascade="all, delete-orphan", order_by="LeadActivity.created_at.desc()")
+
+
+class LeadActivity(Base):
+    __tablename__ = "lead_activities"
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=uid)
+    lead_id: Mapped[str] = mapped_column(ForeignKey("leads.id", ondelete="CASCADE"), index=True)
+    kind: Mapped[str] = mapped_column(String(12))  # note | call | email | visit | status
+    text: Mapped[str] = mapped_column(Text, default="")
+    user_name: Mapped[str] = mapped_column(String(120), default="")
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now)
