@@ -1,7 +1,7 @@
 "use client";
 
 import { useRef, useState } from "react";
-import { ShoppingBag } from "lucide-react";
+import { Loader2, ShoppingBag } from "lucide-react";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -30,7 +30,7 @@ export function Floor() {
   const [section, setSection] = useState<string | null>(null);
   const { data: plan } = usePoll<{ sections: PlanSection[] }>("/floor/plan", 0, "floor");
   const [newTakeaway, setNewTakeaway] = useState(false);
-  const { data: tables } = usePoll<TableRow[]>("/tables", 5000, "floor");
+  const { data: tables, error: tablesError } = usePoll<TableRow[]>("/tables", 5000, "floor");
   const { data: counter } = usePoll<Order[]>("/orders/open?channel=takeaway", 5000, "floor");
   const canOrder = can(s.user, "order");
 
@@ -94,7 +94,8 @@ export function Floor() {
               ))}
             </div>
           </div>
-          <PlanView tables={(tables ?? []).filter((t) => t.section === activeSection)} layout={plan?.sections.find((x) => x.name === activeSection)?.layout} now={now} fmt={fmt} onOpen={(t) => open(t)} />
+          <PlanView tables={(tables ?? []).filter((t) => t.section === activeSection)} layout={plan?.sections.find((x) => x.name === activeSection)?.layout} now={now} fmt={fmt} onOpen={(t) => open(t)}
+            status={tables ? "ready" : tablesError ? "error" : "loading"} />
         </>
       ) : view === "map" ? (
         <>
@@ -165,7 +166,10 @@ function TakeawayDialog({ onClose, onCreated }: { onClose: () => void; onCreated
   );
 }
 
-function PlanView({ tables, layout: raw, now, fmt, onOpen }: { tables: TableRow[]; layout?: unknown; now: number; fmt: (v: number) => string; onOpen: (t: TableRow) => void }) {
+function PlanView({ tables, layout: raw, now, fmt, onOpen, status }: {
+  tables: TableRow[]; layout?: unknown; now: number; fmt: (v: number) => string; onOpen: (t: TableRow) => void;
+  status: "loading" | "error" | "ready";
+}) {
   const wrap = useRef<HTMLDivElement>(null);
   const cell = useCell(wrap);
   const layout = asLayout(raw);
@@ -190,7 +194,13 @@ function PlanView({ tables, layout: raw, now, fmt, onOpen }: { tables: TableRow[
             </button>
           );
         })}
-        {tables.length === 0 && <div className="absolute inset-0 grid place-items-center text-sm text-muted-foreground">No tables in this section yet. Add them in Floor plan.</div>}
+        {tables.length === 0 && (
+          <div className="absolute inset-0 grid place-items-center text-sm text-muted-foreground">
+            {status === "loading" ? <span className="flex items-center gap-2"><Loader2 className="size-4 animate-spin" />Loading tables…</span>
+              : status === "error" ? "Couldn't load the tables. Retrying…"
+              : "No tables in this section yet. Add them in Floor plan."}
+          </div>
+        )}
       </div>
     </div>
   );
