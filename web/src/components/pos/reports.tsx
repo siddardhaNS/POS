@@ -142,7 +142,7 @@ export function ReportsScreen() {
         </label>
         <span className="ml-auto text-sm text-muted-foreground">{start === end ? shortDate(start) : `${shortDate(start)} – ${shortDate(end)}`}</span>
       </div>
-      <div className="overflow-x-auto">
+      <div className="shrink-0 overflow-x-auto">
         <Seg value={tab} onChange={setTab} options={plus
           ? [["overview", "Overview"], ["items", "Items"], ["staff", "Staff"], ["payments", "Payments & channels"], ["exceptions", "Exceptions"], ["tax", "Tax"], ["eod", "End of day"]]
           : [["overview", "Overview"], ["eod", "End of day"]]} />

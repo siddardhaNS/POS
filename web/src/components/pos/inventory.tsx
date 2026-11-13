@@ -52,7 +52,7 @@ export function InventoryScreen() {
   return (
     <div className="flex h-full flex-col gap-4 overflow-auto p-5 md:p-7">
       {manage && (
-        <div className="overflow-x-auto">
+        <div className="shrink-0 overflow-x-auto">
           <Seg value={tab} onChange={setTab} options={[["stock", "Stock"], ["recipes", "Recipes & food cost"], ["orders", "Purchase orders"], ["suppliers", "Suppliers"], ["count", "Stock count"], ["report", "Reports"]]} />
         </div>
       )}
@@ -312,7 +312,7 @@ function RecipesTab() {
               <button key={r.menu_item_id} onClick={() => setOpen(r)} className="flex w-full items-center gap-4 px-4 py-3 text-left hover:bg-muted/50">
                 <div className="min-w-0 flex-1"><div className="font-medium">{r.name}</div>
                   <div className="truncate text-xs text-muted-foreground">{r.category} · {r.lines.length ? r.lines.map((l) => l.stock_item).join(", ") : "No recipe yet"}</div></div>
-                <div className="text-right font-mono text-sm tabular"><div>{fmt(r.cost)} <span className="text-muted-foreground">/ {fmt(r.price)}</span></div>
+                <div className="text-right font-mono text-sm tabular"><div>{r.lines.length ? <>{fmt(r.cost)} <span className="text-muted-foreground">/ {fmt(r.price)}</span></> : <span className="text-muted-foreground">{fmt(r.price)}</span>}</div>
                   {r.lines.length > 0 && <div className={cn("text-xs", r.food_cost_pct > 35 ? "text-destructive" : "text-muted-foreground")}>{r.food_cost_pct}% food cost</div>}</div>
               </button>
             ))}
