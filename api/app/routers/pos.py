@@ -452,8 +452,11 @@ def send_kot(oid: str, body: KotIn | None = None, ctx: Ctx = Depends(require("or
     db.flush()
     for i in pending:
         i.kot_id = k.id
+    from .printing import queue_kot  # late import: printing imports this module
+    print_jobs, has_kitchen_printers = queue_kot(db, ctx, o, k, pending)
     db.commit()
     return {"kot_number": k.number, "created_at": k.created_at.isoformat(), "course": k.course,
+            "print_jobs": print_jobs, "kitchen_printers": has_kitchen_printers,
             "items": [{"name": i.name, "qty": i.qty, "note": i.note, "modifiers": i.modifiers or [], "seat": i.seat,
                        "course": i.course} for i in pending],
             "order": order_out(load_order(db, ctx, oid))}

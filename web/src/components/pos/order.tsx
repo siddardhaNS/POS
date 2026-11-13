@@ -11,7 +11,8 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { api, can } from "@/lib/api";
 import { cn } from "@/lib/utils";
-import { printKot, printReceipt } from "./print";
+import { printKot } from "./print";
+import { openDrawer, printOrder } from "./print-host";
 import { Empty, Live, METHOD_LABEL, Seg, VegDot, orderTitle, payMethods, round2, run, usePoll, usePos } from "./shared";
 import type { Category, KotPrint, Line, MenuItem, Order, TableRow } from "./types";
 
@@ -90,6 +91,14 @@ export function OrderScreen() {
     const o = await run(api<Order>(`/orders/${order!.id}/items`, { body: { menu_item_id: m.id, course, seat, ...extra } }));
     if (o) { setOrder(o); setCustom(null); }
   }
+  async function printCheck(o: Order, kind: "bill" | "receipt") {
+    try {
+      const p = await printOrder(o, s.tenant, fmt, kind); // null = printed through the browser dialog
+      if (p) toast.success(`${kind === "bill" ? "Bill" : "Receipt"} sent to ${p} · ${title}`);
+    } catch (e) {
+      toast.error((e as Error).message);
+    }
+  }
   async function sendKot(c?: number, lineIds?: string[]) {
     if (!unsent) return;
     const body = lineIds ? { line_ids: lineIds } : c ? { course: c } : null;
@@ -98,7 +107,7 @@ export function OrderScreen() {
     setOrder(r.order);
     setDialog(null);
     toast.success(`KOT ${r.kot_number} ${c ? `· course ${c} fired` : `· ${r.items.reduce((a, i) => a + i.qty, 0)} items sent`} · ${title}`);
-    if (s.tenant?.auto_print_kot) printKot(r, title);
+    if (s.tenant?.auto_print_kot && !r.kitchen_printers) printKot(r, title);
   }
 
   if (paying && canPay && open) return <PayPanel order={order} title={title} onBack={() => setPaying(false)} onUpdate={setOrder} onDone={() => go("floor")} />;
@@ -177,7 +186,7 @@ export function OrderScreen() {
                 {actions.filter((a) => a.show).map(({ k, l, icon: Icon }) => (
                   <button key={k} onClick={() => {
                     setMore(false);
-                    if (k === "print") printReceipt(order, s.tenant, fmt, "bill");
+                    if (k === "print") void printCheck(order, "bill");
                     else setDialog(k);
                   }} className={cn("flex w-full items-center gap-2.5 rounded-xl px-3 py-2.5 text-left text-sm hover:bg-muted", k === "void" && "text-destructive")}>
                     <Icon className="size-4" />{l}
@@ -266,7 +275,7 @@ export function OrderScreen() {
               <ChefHat className="size-5" />{unsent ? `Send KOT · ${unsent}` : "Nothing to send"}
             </button>
             <button disabled={!order.items.length}
-              onClick={() => (canPay ? setPaying(true) : (printReceipt(order, s.tenant, fmt, "bill"), toast.success(`Bill printed for ${title}`)))}
+              onClick={() => (canPay ? setPaying(true) : void printCheck(order, "bill"))}
               className="h-14 rounded-2xl bg-foreground font-semibold text-background transition disabled:opacity-35">
               {canPay ? `Pay ${fmt(order.balance)}` : "Print bill"}
             </button>
@@ -711,8 +720,10 @@ function PayPanel({ order, title, onBack, onUpdate, onDone }: {
     setTendered(""); setCustom(""); setSel(new Set()); setTipPct(0);
     if (r.status === "paid") {
       setDone(r);
-      if (s.tenant?.auto_print_receipt) printReceipt(r, s.tenant, fmt);
+      if (s.tenant?.auto_print_receipt) void run(printOrder(r, s.tenant, fmt, "receipt", { drawer: method === "cash" }));
+      else if (method === "cash") void openDrawer();
     } else {
+      if (method === "cash") void openDrawer();
       onUpdate(r);
       toast.success(`${fmt(charge)} by ${METHOD_LABEL[method]} · ${fmt(r.balance)} left`);
     }
@@ -732,7 +743,7 @@ function PayPanel({ order, title, onBack, onUpdate, onDone }: {
             </div>
           )}
           <div className="mt-8 grid grid-cols-2 gap-3">
-            <button onClick={() => printReceipt(done, s.tenant, fmt)} className="flex h-14 items-center justify-center gap-2 rounded-2xl bg-card font-semibold ring-1 ring-border">
+            <button onClick={() => void run(printOrder(done, s.tenant, fmt)).then((p) => p && toast.success(`Receipt sent to ${p}`))} className="flex h-14 items-center justify-center gap-2 rounded-2xl bg-card font-semibold ring-1 ring-border">
               <Printer className="size-5" />Receipt
             </button>
             <button onClick={onDone} className="h-14 rounded-2xl bg-foreground font-semibold text-background">Done</button>

@@ -33,6 +33,8 @@ export interface TableRow {
 }
 
 export interface KotPrint {
+  print_jobs?: number;
+  kitchen_printers?: boolean;
   kot_number: number; created_at: string; course: number;
   items: { name: string; qty: number; note: string; modifiers: Modifier[]; seat: number; course: number }[];
 }

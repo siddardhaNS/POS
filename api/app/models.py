@@ -3,7 +3,7 @@ import uuid
 from datetime import datetime, timezone
 from decimal import Decimal
 
-from sqlalchemy import JSON, BigInteger, Boolean, DateTime, ForeignKey, Integer, Numeric, String, Text, UniqueConstraint
+from sqlalchemy import JSON, BigInteger, Boolean, DateTime, ForeignKey, Index, Integer, Numeric, String, Text, UniqueConstraint
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from .db import Base
@@ -273,3 +273,45 @@ class AuditLog(Base):
     detail: Mapped[str] = mapped_column(Text, default="")
     amount: Mapped[Decimal | None] = mapped_column(Numeric(12, 2), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now, index=True)
+
+
+# ---------- Printing ----------
+# tenants.print_key_hash (the print bridge key) is added by migrate.py and read with plain SQL in routers/printing.py.
+
+class Printer(Base):
+    """A receipt or kitchen printer. Kitchen printers take items for their stations; an empty list = catch-all."""
+    __tablename__ = "printers"
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=uid)
+    tenant_id: Mapped[str] = mapped_column(ForeignKey("tenants.id", ondelete="CASCADE"), index=True)
+    name: Mapped[str] = mapped_column(String(80))
+    role: Mapped[str] = mapped_column(String(10), default="receipt")  # receipt | kitchen
+    stations: Mapped[list] = mapped_column(JSON, default=list)
+    connection: Mapped[str] = mapped_column(String(10), default="network")  # usb | serial | network | windows
+    address: Mapped[str] = mapped_column(String(200), default="")  # "192.168.1.50:9100" or "\\localhost\POS80"
+    width: Mapped[int] = mapped_column(Integer, default=48)  # characters per line: 32 (58 mm) | 42 | 48 (80 mm)
+    copies: Mapped[int] = mapped_column(Integer, default=1)
+    cash_drawer: Mapped[bool] = mapped_column(Boolean, default=False)
+    enabled: Mapped[bool] = mapped_column(Boolean, default=True)
+    sort: Mapped[int] = mapped_column(Integer, default=0)
+    last_seen_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    last_error: Mapped[str] = mapped_column(String(300), default="")
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now)
+
+
+class PrintJob(Base):
+    """A document waiting for (or sent to) a printer, delivered by a print host: a paired device or the print bridge."""
+    __tablename__ = "print_jobs"
+    __table_args__ = (Index("ix_print_jobs_tenant_status", "tenant_id", "status"),)
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=uid)
+    tenant_id: Mapped[str] = mapped_column(ForeignKey("tenants.id", ondelete="CASCADE"))
+    printer_id: Mapped[str] = mapped_column(ForeignKey("printers.id", ondelete="CASCADE"), index=True)
+    order_id: Mapped[str | None] = mapped_column(ForeignKey("orders.id", ondelete="SET NULL"), nullable=True)
+    kind: Mapped[str] = mapped_column(String(10))  # kot | bill | receipt | test | drawer
+    title: Mapped[str] = mapped_column(String(160), default="")
+    payload: Mapped[dict] = mapped_column(JSON, default=dict)
+    status: Mapped[str] = mapped_column(String(10), default="queued")  # queued | printing | done | failed
+    attempts: Mapped[int] = mapped_column(Integer, default=0)
+    error: Mapped[str] = mapped_column(String(300), default="")
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now)
+    claimed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    printed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)

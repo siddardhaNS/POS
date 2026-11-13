@@ -19,6 +19,7 @@ COLUMNS: dict[str, list[tuple[str, str, str | None]]] = {
         ("receipt_footer", "TEXT NOT NULL DEFAULT 'Thank you! See you again soon.'", None),
         ("auto_print_kot", "BOOLEAN NOT NULL DEFAULT FALSE", None),
         ("auto_print_receipt", "BOOLEAN NOT NULL DEFAULT FALSE", None),
+        ("print_key_hash", "VARCHAR(64) NOT NULL DEFAULT ''", None),
     ],
     "dining_tables": [
         ("section", "VARCHAR(40) NOT NULL DEFAULT 'Main'", None),

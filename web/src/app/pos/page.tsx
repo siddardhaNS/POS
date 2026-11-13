@@ -13,6 +13,7 @@ import { Floor } from "@/components/pos/floor";
 import { Kitchen, Online } from "@/components/pos/kitchen";
 import { LockScreen } from "@/components/pos/lock-screen";
 import { OrderScreen } from "@/components/pos/order";
+import { usePrintHost } from "@/components/pos/print-host";
 import { Live, Pos, type Screen, chime, useFmt, useLiveFeed, usePoll } from "@/components/pos/shared";
 import { can, session, type Session, type Tenant } from "@/lib/api";
 import { cn } from "@/lib/utils";
@@ -108,6 +109,7 @@ function ShellInner({ s, screen, go, orderId, payNow, allowed, navOpen, setNavOp
   allowed: typeof MODULES; navOpen: boolean; setNavOpen: (v: boolean) => void; onLock: () => void; setTenant: (t: Tenant) => void;
   fmt: (v: number) => string;
 }) {
+  usePrintHost();
   const { data: online } = usePoll<{ status: string }[]>(can(s.user, "online") ? "/online" : null, 30000, "online");
   const { data: kds } = usePoll<unknown[]>(can(s.user, "kds") ? "/kds" : null, 30000, "kds");
   const fresh = online?.filter((o) => o.status === "new").length ?? 0;

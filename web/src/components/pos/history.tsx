@@ -8,7 +8,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { api, can } from "@/lib/api";
 import { cn } from "@/lib/utils";
-import { printReceipt } from "./print";
+import { printOrder } from "./print-host";
 import { Empty, METHOD_LABEL, STATUS_TONE, Seg, orderTitle, payMethods, run, usePoll, usePos } from "./shared";
 import type { Order } from "./types";
 import { ActivityList, type AuditRow } from "./activity";
@@ -143,7 +143,7 @@ export function OrdersScreen() {
               )}
             </div>
             <div className="grid grid-cols-2 gap-2.5 border-t border-border p-5">
-              <button onClick={() => printReceipt(sel, s.tenant, fmt, sel.status === "open" ? "bill" : "receipt")}
+              <button onClick={() => void run(printOrder(sel, s.tenant, fmt, sel.status === "open" ? "bill" : "receipt")).then((p) => p && toast.success(`Sent to ${p}`))}
                 className="flex h-12 items-center justify-center gap-2 rounded-xl bg-muted font-semibold"><Printer className="size-4" />Reprint</button>
               {sel.status === "open" ? (
                 <button onClick={() => go("order", { orderId: sel.id })} className="h-12 rounded-xl bg-foreground font-semibold text-background">Open check</button>
