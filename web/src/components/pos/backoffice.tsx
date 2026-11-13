@@ -11,76 +11,7 @@ import { cn } from "@/lib/utils";
 import { NativeSelect } from "@/components/auth-shell";
 import { MenuImport } from "./menu-import";
 import type { Category, MenuItem, ModGroup } from "./types";
-import { METHOD_LABEL, Seg, VegDot, run, usePoll, usePos } from "./shared";
-
-/* ---------------- Dashboard ---------------- */
-
-interface Kpi { net_sales: number; orders: number; avg_order: number; tips: number; tax: number; discounts: number; refunds: number }
-interface Summary { current: Kpi; previous: Kpi; labels: string[]; series: number[]; payment_mix: Record<string, number>; channels: Record<string, number> }
-
-export function Dashboard() {
-  const { s, fmt } = usePos();
-  const [range, setRange] = useState<"today" | "7d" | "30d">("today");
-  const { data } = usePoll<Summary>(`/reports/summary?range=${range}`, 30000, "orders");
-  const [hover, setHover] = useState<number | null>(null);
-
-  const delta = (a: number, b: number) => (b ? `${a >= b ? "+" : "−"}${Math.abs(((a - b) / b) * 100).toFixed(1)}% vs previous` : "No prior data");
-  const max = Math.max(1, ...(data?.series ?? [1]));
-  const kpis = data ? [
-    { l: "Net sales", v: fmt(data.current.net_sales), d: delta(data.current.net_sales, data.previous.net_sales), up: data.current.net_sales >= data.previous.net_sales },
-    { l: "Orders", v: String(data.current.orders), d: delta(data.current.orders, data.previous.orders), up: data.current.orders >= data.previous.orders },
-    { l: "Avg order value", v: fmt(data.current.avg_order), d: delta(data.current.avg_order, data.previous.avg_order), up: data.current.avg_order >= data.previous.avg_order },
-    s.tenant?.tips_enabled
-      ? { l: "Tips collected", v: fmt(data.current.tips), d: `Discounts ${fmt(data.current.discounts)} · refunds ${fmt(data.current.refunds)}`, up: true }
-      : { l: "Tax collected", v: fmt(data.current.tax), d: `Discounts ${fmt(data.current.discounts)} · refunds ${fmt(data.current.refunds)}`, up: true },
-  ] : [];
-
-  return (
-    <div className="flex h-full flex-col gap-5 overflow-auto p-5 md:p-7">
-      <div className="flex flex-wrap items-center gap-3">
-        <h2 className="text-2xl font-semibold">{{ today: "Today", "7d": "Last 7 days", "30d": "Last 30 days" }[range]}</h2>
-        <div className="ml-auto"><Seg value={range} onChange={setRange} options={[["today", "Today"], ["7d", "7 days"], ["30d", "30 days"]]} /></div>
-      </div>
-      <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
-        {kpis.map((k) => (
-          <div key={k.l} className="rounded-2xl border border-border bg-card p-5">
-            <div className="text-sm text-muted-foreground">{k.l}</div>
-            <div className="mt-2 font-mono text-2xl font-semibold tabular md:text-3xl">{k.v}</div>
-            <div className={cn("mt-1.5 text-xs", k.up ? "text-[oklch(0.5_0.13_150)]" : "text-destructive")}>{k.d}</div>
-          </div>
-        ))}
-      </div>
-      <div className="grid gap-4 lg:grid-cols-[1.6fr_1fr]">
-        <div className="rounded-2xl border border-border bg-card p-5">
-          <div className="flex items-center justify-between">
-            <div className="font-semibold">{range === "today" ? "Sales by hour" : "Sales by day"}</div>
-            <div className="font-mono text-sm text-muted-foreground">{hover != null && data ? `${data.labels[hover]} · ${fmt(data.series[hover])}` : "Hover a bar"}</div>
-          </div>
-          <div className="mt-6 flex h-56 items-end gap-1.5" onMouseLeave={() => setHover(null)}>
-            {data?.series.map((v, i) => (
-              <div key={i} className="flex h-full flex-1 flex-col items-center justify-end gap-2" onMouseEnter={() => setHover(i)}>
-                <div className={cn("w-full rounded-t-md transition-colors", hover === i ? "bg-saffron" : "bg-foreground")} style={{ height: `${Math.max(2, (v / max) * 100)}%`, opacity: v ? 1 : 0.15 }} />
-                <span className="text-[10px] text-muted-foreground">{data.labels[i]}</span>
-              </div>
-            ))}
-          </div>
-        </div>
-        <div className="rounded-2xl border border-border bg-card p-5">
-          <div className="font-semibold">Payments & channels</div>
-          <div className="mt-4 space-y-3 text-sm">
-            {data && Object.entries(data.payment_mix).length === 0 && <p className="text-muted-foreground">No paid checks in this period yet.</p>}
-            {data && Object.entries(data.payment_mix).map(([k, v]) => (
-              <div key={k} className="flex justify-between"><span className="text-muted-foreground">{METHOD_LABEL[k] ?? k}</span><span className="font-mono">{v} checks</span></div>
-            ))}
-            {data && Object.entries(data.channels).map(([k, v]) => (
-              <div key={k} className="flex justify-between"><span className="capitalize text-muted-foreground">{k.replace("_", "-")}</span><span className="font-mono">{fmt(v)}</span></div>
-            ))}
-          </div>
-        </div>
-      </div>
-    </div>
-  );
-}
+import { Seg, VegDot, run, usePoll, usePos } from "./shared";
 
 /* ---------------- Menu ---------------- */
 

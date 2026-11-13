@@ -4,7 +4,7 @@ import type { Tenant } from "@/lib/api";
 import { METHOD_LABEL, orderTitle } from "./shared";
 import type { KotPrint, Order } from "./types";
 
-const esc = (s: string) => s.replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c]!);
+export const esc = (s: string) => s.replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c]!);
 
 const CSS = `
   @page { size: 80mm auto; margin: 4mm; }
@@ -34,7 +34,7 @@ export function printHtml(body: string, title = "Print") {
 
 const when = (iso: string) => new Date(iso).toLocaleString(undefined, { dateStyle: "medium", timeStyle: "short" });
 
-function header(t: Tenant | null | undefined) {
+export function header(t: Tenant | null | undefined) {
   if (!t) return "";
   return `<div class="c b big">${esc(t.name)}</div>
     ${t.address ? `<div class="c">${esc(t.address)}</div>` : t.city ? `<div class="c">${esc(t.city)}</div>` : ""}

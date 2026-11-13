@@ -3,7 +3,8 @@
 import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Activity, Armchair, BarChart3, Bike, ChefHat, History, LayoutGrid, Lock, Menu as MenuIcon, ReceiptText, Settings, UtensilsCrossed, Users, Wallet, X } from "lucide-react";
-import { Dashboard, MenuAdmin, Staff } from "@/components/pos/backoffice";
+import { MenuAdmin, Staff } from "@/components/pos/backoffice";
+import { ReportsScreen } from "@/components/pos/reports";
 import { CashScreen } from "@/components/pos/cash";
 import { OrdersScreen } from "@/components/pos/history";
 import { SettingsScreen } from "@/components/pos/settings";
@@ -201,7 +202,7 @@ function ShellInner({ s, screen, go, orderId, payNow, allowed, navOpen, setNavOp
             {screen === "floorplan" && <FloorPlanEditor />}
             {screen === "online" && <Online />}
             {screen === "kds" && <Kitchen />}
-            {screen === "dash" && <Dashboard />}
+            {screen === "dash" && <ReportsScreen />}
             {screen === "menu" && <MenuAdmin />}
             {screen === "staff" && <Staff />}
           </main>
