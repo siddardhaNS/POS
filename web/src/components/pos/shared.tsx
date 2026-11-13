@@ -5,7 +5,7 @@ import { toast } from "sonner";
 import { api, money, type Session, type Tenant } from "@/lib/api";
 import { cn } from "@/lib/utils";
 
-export type Screen = "floor" | "order" | "orders" | "cash" | "online" | "kds" | "dash" | "menu" | "staff" | "settings" | "audit" | "floorplan" | "inventory";
+export type Screen = "floor" | "order" | "orders" | "cash" | "online" | "kds" | "dash" | "menu" | "staff" | "settings" | "audit" | "floorplan" | "inventory" | "timesheets";
 
 export interface PosCtx {
   s: Session;
@@ -13,7 +13,7 @@ export interface PosCtx {
   go: (screen: Screen, opts?: { orderId?: string; pay?: boolean }) => void;
   payNow: boolean;
   orderId: string | null;
-  setTenant: (t: Tenant) => void;
+  setTenant: (t: Tenant, user?: Session["user"]) => void;
 }
 
 export const METHOD_LABEL: Record<string, string> = {
@@ -48,7 +48,7 @@ export const useFmt = (s: Session) => useCallback((v: number) => money(v, s.tena
 
 /* ---------- Live updates ---------- */
 
-export type Topic = "floor" | "orders" | "online" | "kds" | "cash" | "menu" | "audit" | "print" | "inventory";
+export type Topic = "floor" | "orders" | "online" | "kds" | "cash" | "menu" | "audit" | "print" | "inventory" | "timeclock";
 export type Revs = Partial<Record<Topic, number>>;
 export const Live = createContext<Revs>({});
 

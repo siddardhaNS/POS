@@ -6,7 +6,7 @@ import { ListPlus, Plus, ScanText, Trash2, X } from "lucide-react";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { api, can } from "@/lib/api";
+import { api, can, hasModule } from "@/lib/api";
 import { cn } from "@/lib/utils";
 import { NativeSelect } from "@/components/auth-shell";
 import { MenuImport } from "./menu-import";
@@ -191,7 +191,7 @@ export function MenuAdmin() {
 
 /* ---------------- Staff ---------------- */
 
-interface StaffRow { id: string; name: string; email: string | null; role: string; is_active: boolean; has_pin: boolean }
+interface StaffRow { id: string; name: string; email: string | null; role: string; is_active: boolean; has_pin: boolean ; hourly_rate?: number }
 
 const ROLE_INFO: Record<string, string> = {
   owner: "Everything, including roles and settings",
@@ -202,20 +202,27 @@ const ROLE_INFO: Record<string, string> = {
 };
 
 export function Staff() {
-  const { s } = usePos();
+  const { s, fmt } = usePos();
   const { data: staff, reload } = usePoll<StaffRow[]>("/staff", 0);
-  const [form, setForm] = useState({ name: "", role: "captain", pin: "" });
+  const [form, setForm] = useState({ name: "", role: "captain", pin: "", hourly_rate: "" });
+  const pay = hasModule(s.tenant, "timeclock") && can(s.user, "timesheets");
 
   async function add(e: React.FormEvent) {
     e.preventDefault();
-    if (await run(api("/staff", { body: form }), `${form.name} added · PIN ${form.pin}`)) {
-      setForm({ name: "", role: "captain", pin: "" });
+    const body = { name: form.name, role: form.role, pin: form.pin, ...(pay && form.hourly_rate ? { hourly_rate: Number(form.hourly_rate) } : {}) };
+    if (await run(api("/staff", { body }), `${form.name} added · PIN ${form.pin}`)) {
+      setForm({ name: "", role: "captain", pin: "", hourly_rate: "" });
       reload();
     }
   }
   async function setPin(u: StaffRow) {
     const pin = prompt(`New 4-digit PIN for ${u.name}`);
     if (pin && /^\d{4}$/.test(pin) && await run(api(`/staff/${u.id}`, { method: "PATCH", body: { pin } }), "PIN updated")) reload();
+  }
+  async function setRate(u: StaffRow, v: string) {
+    const rate = Number(v);
+    if (v === "" || Number.isNaN(rate) || rate === (u.hourly_rate ?? 0)) return;
+    if (await run(api(`/staff/${u.id}`, { method: "PATCH", body: { hourly_rate: rate } }), `${u.name}: ${fmt(rate)} an hour`)) reload();
   }
   async function toggleActive(u: StaffRow) {
     if (await run(api(`/staff/${u.id}`, { method: "PATCH", body: { is_active: !u.is_active } }), u.is_active ? `${u.name} deactivated` : `${u.name} reactivated`)) reload();
@@ -231,6 +238,12 @@ export function Staff() {
               <div className="font-medium">{u.name} {u.id === s.user.id && <span className="text-xs text-muted-foreground">(you)</span>}</div>
               <div className="text-xs text-muted-foreground"><span className="capitalize">{u.role}</span> · {ROLE_INFO[u.role]}</div>
             </div>
+            {pay && (
+              <label className="flex items-center gap-1 text-xs text-muted-foreground" title="Hourly rate, used for labour cost on timesheets">
+                <Input type="number" min={0} step="0.01" defaultValue={u.hourly_rate || ""} placeholder="Rate" onBlur={(e) => setRate(u, e.target.value)}
+                  onKeyDown={(e) => e.key === "Enter" && (e.target as HTMLInputElement).blur()} className="h-8 w-20 font-mono text-sm" />/h
+              </label>
+            )}
             <span className={cn("hidden rounded-md px-2 py-0.5 text-xs sm:block", u.has_pin ? "bg-muted" : "bg-accent text-accent-foreground")}>{u.has_pin ? "PIN set" : "No PIN"}</span>
             {(u.role !== "owner" || u.id === s.user.id) && <button onClick={() => setPin(u)} className="text-sm font-medium hover:underline">PIN</button>}
             {u.role !== "owner" && <button onClick={() => toggleActive(u)} className="text-sm text-muted-foreground hover:text-foreground">{u.is_active ? "Deactivate" : "Activate"}</button>}
@@ -248,6 +261,7 @@ export function Staff() {
         </div>
         <div className="space-y-2"><Label>4-digit PIN</Label>
           <Input required inputMode="numeric" pattern="\d{4}" maxLength={4} value={form.pin} onChange={(e) => setForm({ ...form, pin: e.target.value.replace(/\D/g, "") })} className="h-10 font-mono tracking-[0.5em]" /></div>
+        {pay && <div className="space-y-2"><Label>Hourly rate (optional)</Label><Input type="number" min={0} step="0.01" value={form.hourly_rate} onChange={(e) => setForm({ ...form, hourly_rate: e.target.value })} className="h-10 font-mono" /></div>}
         <button className="h-11 w-full rounded-xl bg-foreground font-semibold text-background">Add to team</button>
       </form>
     </div>

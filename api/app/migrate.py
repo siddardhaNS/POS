@@ -26,6 +26,13 @@ COLUMNS: dict[str, list[tuple[str, str, str | None]]] = {
          """UPDATE tenants SET modules = '["online", "reports_plus", "printing", "menu_scan"]'
             WHERE status IN ('trial', 'active', 'suspended')"""),
         ("inventory_auto_86", "BOOLEAN NOT NULL DEFAULT FALSE", None),
+        # Time clock
+        ("require_clock_in", "BOOLEAN NOT NULL DEFAULT FALSE", None),
+        ("ot_daily_hours", "NUMERIC(4,1) NOT NULL DEFAULT 0", None),
+        ("ot_weekly_hours", "NUMERIC(5,1) NOT NULL DEFAULT 40", None),
+    ],
+    "users": [
+        ("hourly_rate", "NUMERIC(10,2) NOT NULL DEFAULT 0", None),
     ],
     "dining_tables": [
         ("section", "VARCHAR(40) NOT NULL DEFAULT 'Main'", None),

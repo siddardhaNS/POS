@@ -11,6 +11,7 @@ from sqlalchemy.orm import Session, selectinload
 from .. import phases
 from ..db import get_db
 from ..deps import Ctx, require
+from ..deps import PERMISSIONS
 from ..live import audit
 from ..models import AuditLog, DiningTable, FloorSection, MenuCategory, MenuItem, ModifierGroup, ModifierOption, Order, User
 from ..security import hash_secret
@@ -195,13 +196,19 @@ ROLES = ("manager", "cashier", "captain", "chef")
 def staff(ctx: Ctx = Depends(require("staff")), db: Session = Depends(get_db)):
     rows = db.scalars(select(User).where(User.tenant_id == ctx.tenant_id).order_by(User.created_at)).all()
     return [{"id": u.id, "name": u.name, "email": u.email, "role": u.role, "is_active": u.is_active,
-             "has_pin": u.pin_hash is not None} for u in rows]
+             "has_pin": u.pin_hash is not None, **pay_rate(ctx, u)} for u in rows]
+
+
+def pay_rate(ctx: Ctx, u: User) -> dict:
+    """Hourly rate is only shown to roles that can see timesheets."""
+    return {"hourly_rate": money(u.hourly_rate)} if "timesheets" in PERMISSIONS.get(ctx.user.role, set()) else {}
 
 
 class StaffIn(BaseModel):
     name: str = Field(min_length=1, max_length=120)
     role: str
     pin: str = Field(pattern=r"^\d{4}$")
+    hourly_rate: float | None = Field(default=None, ge=0, le=100000)
 
 
 @router.post("/staff", status_code=201)
@@ -211,15 +218,18 @@ def add_staff(body: StaffIn, ctx: Ctx = Depends(require("staff")), db: Session =
     if body.role == "manager" and ctx.user.role != "owner":
         raise HTTPException(403, "Only the owner can add managers")
     u = User(tenant_id=ctx.tenant_id, name=body.name.strip(), role=body.role, pin_hash=hash_secret(body.pin))
+    if body.hourly_rate is not None and "timesheets" in PERMISSIONS.get(ctx.user.role, set()):
+        u.hourly_rate = Decimal(str(body.hourly_rate))
     db.add(u)
     db.commit()
-    return {"id": u.id, "name": u.name, "role": u.role, "is_active": True, "has_pin": True, "email": None}
+    return {"id": u.id, "name": u.name, "role": u.role, "is_active": True, "has_pin": True, "email": None, **pay_rate(ctx, u)}
 
 
 class StaffPatch(BaseModel):
     role: str | None = None
     pin: str | None = Field(default=None, pattern=r"^\d{4}$")
     is_active: bool | None = None
+    hourly_rate: float | None = Field(default=None, ge=0, le=100000)
 
 
 @router.patch("/staff/{uid}")
@@ -241,9 +251,14 @@ def edit_staff(uid: str, body: StaffPatch, ctx: Ctx = Depends(require("staff")),
     if body.is_active is not None and u.role != "owner" and body.is_active != u.is_active:
         audit(db, ctx, "staff_activated" if body.is_active else "staff_deactivated", detail=u.name)
         u.is_active = body.is_active
+    if body.hourly_rate is not None and "timesheets" in PERMISSIONS.get(ctx.user.role, set()):
+        rate = Decimal(str(body.hourly_rate)).quantize(Decimal("0.01"))
+        if rate != u.hourly_rate:
+            audit(db, ctx, "rate_change", detail=f"{u.name}: {money(u.hourly_rate):g} → {money(rate):g}/h")
+        u.hourly_rate = rate
     db.commit()
     return {"id": u.id, "name": u.name, "email": u.email, "role": u.role, "is_active": u.is_active,
-            "has_pin": u.pin_hash is not None}
+            "has_pin": u.pin_hash is not None, **pay_rate(ctx, u)}
 
 
 # ---------- Reports ----------

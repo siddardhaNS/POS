@@ -19,6 +19,7 @@ MODULES: dict[str, tuple[str, str]] = {
     "printing": ("Direct printing", "Thermal receipt and kitchen printers routed by station, and the print bridge."),
     "menu_scan": ("Menu photo scan", "Build the menu from photos or PDFs of a printed menu."),
     "inventory": ("Inventory", "Stock, recipes and food cost, suppliers and purchase orders, stock counts, low-stock alerts."),
+    "timeclock": ("Staff time", "Clock in and out with a PIN, breaks, timesheets with overtime, labour cost, tip pooling and payroll export."),
 }
 
 
@@ -30,10 +31,10 @@ def has_module(t: Tenant | None, key: str) -> bool:
 PERMISSIONS: dict[str, set[str]] = {
     "owner": {"floor", "order", "pay", "online", "kds", "reports", "menu", "menu_edit", "staff", "settings",
               "tables", "discount", "refund", "cash", "history",
-              "inventory", "inventory_waste"},
+              "inventory", "inventory_waste", "timesheets"},
     "manager": {"floor", "order", "pay", "online", "kds", "reports", "menu", "menu_edit", "staff",
                 "tables", "discount", "refund", "cash", "history",
-                "inventory", "inventory_waste"},
+                "inventory", "inventory_waste", "timesheets"},
     "cashier": {"floor", "order", "pay", "online", "cash", "history"},
     "captain": {"floor", "order"},
     "chef": {"kds", "menu",

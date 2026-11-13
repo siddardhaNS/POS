@@ -86,6 +86,14 @@ class PinIn(BaseModel):
     pin: str = Field(pattern=r"^\d{4}$")
 
 
+@router.get("/pos/me")
+def me(ctx: Ctx = Depends(tenant_user)):
+    """The signed-in user (with current permissions) and restaurant, so devices pick up changes without signing in again."""
+    u = ctx.user
+    return {"user": {"id": u.id, "name": u.name, "email": u.email, "role": u.role, "permissions": sorted(PERMISSIONS.get(u.role, set()))},
+            "tenant": tenant_out(ctx.tenant)}
+
+
 @router.get("/pos/tenant")
 def my_tenant(ctx: Ctx = Depends(tenant_user)):
     """The restaurant as devices see it (settings and modules), so they pick up changes without signing in again."""
@@ -106,6 +114,9 @@ def pin_login(body: PinIn, ctx: Ctx = Depends(tenant_user), db: Session = Depend
     u = db.get(User, body.user_id)
     if not u or u.tenant_id != ctx.tenant_id or not u.is_active or not verify_secret(body.pin, u.pin_hash):
         raise HTTPException(401, "Wrong PIN")
+    # Time clock: optionally require staff to be on the clock before they can use the POS.
+    from .timeclock import clock_in_required
+    clock_in_required(db, ctx.tenant, u)
     return session_out(u, ctx.tenant)
 
 

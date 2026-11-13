@@ -3,7 +3,7 @@ import uuid
 from datetime import date, datetime, timezone
 from decimal import Decimal
 
-from sqlalchemy import JSON, BigInteger, Boolean, Date, DateTime, ForeignKey, Index, Integer, Numeric, String, Text, UniqueConstraint
+from sqlalchemy import JSON, BigInteger, Boolean, Date, DateTime, ForeignKey, Index, Integer, Numeric, String, Text, UniqueConstraint, text
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from .db import Base
@@ -48,6 +48,10 @@ class Tenant(Base):
     receipt_footer: Mapped[str] = mapped_column(Text, default="Thank you! See you again soon.")
     modules: Mapped[list] = mapped_column(JSON, default=list)  # optional modules turned on (see deps.MODULES)
     inventory_auto_86: Mapped[bool] = mapped_column(Boolean, default=False)  # sold out when an ingredient runs out
+    # Time clock: staff must clock in before using the POS; overtime thresholds in hours (0 = none)
+    require_clock_in: Mapped[bool] = mapped_column(Boolean, default=False)
+    ot_daily_hours: Mapped[Decimal] = mapped_column(Numeric(4, 1), default=Decimal("0"))
+    ot_weekly_hours: Mapped[Decimal] = mapped_column(Numeric(5, 1), default=Decimal("40"))
     auto_print_kot: Mapped[bool] = mapped_column(Boolean, default=False)
     auto_print_receipt: Mapped[bool] = mapped_column(Boolean, default=False)
 
@@ -63,6 +67,7 @@ class User(Base):
     # platform_admin | owner | manager | cashier | captain | chef
     role: Mapped[str] = mapped_column(String(20))
     is_active: Mapped[bool] = mapped_column(Boolean, default=True)
+    hourly_rate: Mapped[Decimal] = mapped_column(Numeric(10, 2), default=Decimal("0"))
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now)
 
 
@@ -486,3 +491,32 @@ class LeadActivity(Base):
     text: Mapped[str] = mapped_column(Text, default="")
     user_name: Mapped[str] = mapped_column(String(120), default="")
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now)
+
+# ---------- Time clock (staff time tracking) ----------
+class TimeEntry(Base):
+    """One shift on the clock. Role and hourly rate are snapshotted at clock-in so later changes don't rewrite payroll."""
+    __tablename__ = "time_entries"
+    # At most one open shift per person.
+    __table_args__ = (Index("uq_time_entries_open", "user_id", unique=True, postgresql_where=text("clock_out IS NULL")),)
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=uid)
+    tenant_id: Mapped[str] = mapped_column(ForeignKey("tenants.id", ondelete="CASCADE"), index=True)
+    user_id: Mapped[str] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), index=True)
+    clock_in: Mapped[datetime] = mapped_column(DateTime(timezone=True), index=True)
+    clock_out: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    role: Mapped[str] = mapped_column(String(20), default="")
+    hourly_rate: Mapped[Decimal] = mapped_column(Numeric(10, 2), default=Decimal("0"))
+    note: Mapped[str] = mapped_column(String(200), default="")
+    edited_by: Mapped[str | None] = mapped_column(ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
+    edited_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now)
+    breaks: Mapped[list["TimeBreak"]] = relationship(cascade="all, delete-orphan", order_by="TimeBreak.start")
+
+
+class TimeBreak(Base):
+    __tablename__ = "time_breaks"
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=uid)
+    tenant_id: Mapped[str] = mapped_column(ForeignKey("tenants.id", ondelete="CASCADE"), index=True)
+    entry_id: Mapped[str] = mapped_column(ForeignKey("time_entries.id", ondelete="CASCADE"), index=True)
+    start: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    end: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    paid: Mapped[bool] = mapped_column(Boolean, default=False)

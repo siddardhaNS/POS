@@ -2,7 +2,7 @@
 
 import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { Activity, Armchair, BarChart3, Bike, Boxes, ChefHat, History, LayoutGrid, Lock, Menu as MenuIcon, ReceiptText, Settings, UtensilsCrossed, Users, Wallet, X } from "lucide-react";
+import { Activity, Armchair, BarChart3, Bike, Boxes, Clock, ChefHat, History, LayoutGrid, Lock, Menu as MenuIcon, ReceiptText, Settings, UtensilsCrossed, Users, Wallet, X } from "lucide-react";
 import { MenuAdmin, Staff } from "@/components/pos/backoffice";
 import { ReportsScreen } from "@/components/pos/reports";
 import { CashScreen } from "@/components/pos/cash";
@@ -11,6 +11,7 @@ import { SettingsScreen } from "@/components/pos/settings";
 import { ActivityScreen } from "@/components/pos/activity";
 import { FloorPlanEditor } from "@/components/pos/floorplan";
 import { InventoryScreen } from "@/components/pos/inventory";
+import { TimesheetsScreen } from "@/components/pos/timesheets";
 import { Floor } from "@/components/pos/floor";
 import { Kitchen, Online } from "@/components/pos/kitchen";
 import { LockScreen } from "@/components/pos/lock-screen";
@@ -32,6 +33,7 @@ const MODULES: { k: Screen; l: string; perm: string; module?: string; group: "SE
   { k: "menu", l: "Menu", perm: "menu", group: "MANAGE", icon: UtensilsCrossed },
   { k: "inventory", l: "Inventory", perm: "inventory_waste", module: "inventory", group: "MANAGE", icon: Boxes },
   { k: "staff", l: "Staff & roles", perm: "staff", group: "MANAGE", icon: Users },
+  { k: "timesheets", l: "Timesheets", perm: "timesheets", module: "timeclock", group: "MANAGE", icon: Clock },
   { k: "audit", l: "Activity log", perm: "reports", group: "MANAGE", icon: Activity },
   { k: "floorplan", l: "Floor plan", perm: "tables", group: "MANAGE", icon: Armchair },
   { k: "settings", l: "Settings", perm: "settings", group: "MANAGE", icon: Settings },
@@ -69,13 +71,17 @@ export default function PosPage() {
     setNavOpen(false);
   }, []);
 
-  const setTenant = useCallback((t: Tenant) => {
+  const setTenant = useCallback((t: Tenant, user?: Session["user"]) => {
     setS((cur) => {
       if (!cur) return cur;
-      const next = { ...cur, tenant: t };
+      const next = { ...cur, tenant: t, ...(user && user.id === cur.user.id ? { user } : {}) };
       session.set(next);
       const d = session.device();
-      if (d) localStorage.setItem("tiffin.device", JSON.stringify({ ...d, tenant: t }));
+      if (d) {
+        const dev = { ...d, tenant: t, ...(user && user.id === d.user.id ? { user } : {}) };
+        try { localStorage.setItem("tiffin.device", JSON.stringify(dev)); } catch { /* storage blocked */ }
+        setDevice(dev);
+      }
       return next;
     });
   }, []);
@@ -96,7 +102,7 @@ export default function PosPage() {
 
 function Shell({ s, screen, go, orderId, payNow, allowed, navOpen, setNavOpen, onLock, setTenant }: {
   s: Session; screen: Screen; go: (sc: Screen, o?: { orderId?: string; pay?: boolean }) => void; orderId: string | null; payNow: boolean;
-  allowed: typeof MODULES; navOpen: boolean; setNavOpen: (v: boolean) => void; onLock: () => void; setTenant: (t: Tenant) => void;
+  allowed: typeof MODULES; navOpen: boolean; setNavOpen: (v: boolean) => void; onLock: () => void; setTenant: (t: Tenant, user?: Session["user"]) => void;
 }) {
   const fmt = useFmt(s);
   const revs = useLiveFeed(true);
@@ -110,7 +116,7 @@ function Shell({ s, screen, go, orderId, payNow, allowed, navOpen, setNavOpen, o
 
 function ShellInner({ s, screen, go, orderId, payNow, allowed, navOpen, setNavOpen, onLock, setTenant, fmt }: {
   s: Session; screen: Screen; go: (sc: Screen, o?: { orderId?: string; pay?: boolean }) => void; orderId: string | null; payNow: boolean;
-  allowed: typeof MODULES; navOpen: boolean; setNavOpen: (v: boolean) => void; onLock: () => void; setTenant: (t: Tenant) => void;
+  allowed: typeof MODULES; navOpen: boolean; setNavOpen: (v: boolean) => void; onLock: () => void; setTenant: (t: Tenant, user?: Session["user"]) => void;
   fmt: (v: number) => string;
 }) {
   usePrintHost(hasModule(s.tenant, "printing"));
@@ -118,13 +124,15 @@ function ShellInner({ s, screen, go, orderId, payNow, allowed, navOpen, setNavOp
   useEffect(() => {
     const refresh = () => {
       if (document.hidden) return;
-      api<Tenant>("/pos/tenant").then((t) => { if (JSON.stringify(t) !== JSON.stringify(s.tenant)) setTenant(t); }).catch(() => {});
+      api<{ user: Session["user"]; tenant: Tenant }>("/pos/me").then((m) => {
+        if (JSON.stringify(m.tenant) !== JSON.stringify(s.tenant) || JSON.stringify(m.user) !== JSON.stringify(s.user)) setTenant(m.tenant, m.user);
+      }).catch(() => {});
     };
     refresh();
     const timer = setInterval(refresh, 120_000);
     document.addEventListener("visibilitychange", refresh);
     return () => { clearInterval(timer); document.removeEventListener("visibilitychange", refresh); };
-  }, [s.tenant, setTenant]);
+  }, [s.tenant, s.user, setTenant]);
   const { data: online } = usePoll<{ status: string }[]>(can(s.user, "online") && hasModule(s.tenant, "online") ? "/online" : null, 30000, "online");
   const { data: kds } = usePoll<unknown[]>(can(s.user, "kds") ? "/kds" : null, 30000, "kds");
   const fresh = online?.filter((o) => o.status === "new").length ?? 0;
@@ -220,6 +228,7 @@ function ShellInner({ s, screen, go, orderId, payNow, allowed, navOpen, setNavOp
             {screen === "menu" && <MenuAdmin />}
             {screen === "inventory" && <InventoryScreen />}
             {screen === "staff" && <Staff />}
+            {screen === "timesheets" && <TimesheetsScreen />}
           </main>
         </div>
       </div>
