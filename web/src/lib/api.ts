@@ -23,6 +23,8 @@ export interface Tenant {
   receipt_footer?: string;
   auto_print_kot?: boolean;
   auto_print_receipt?: boolean;
+  /** Optional modules turned on for this restaurant by Tiffin (online, reports_plus, printing, menu_scan). */
+  modules?: string[];
 }
 
 export interface SessionUser {
@@ -105,6 +107,9 @@ export function money(v: number, t: Pick<Tenant, "currency"> | null | undefined)
 }
 
 export const can = (u: SessionUser | undefined, perm: string) => !!u?.permissions.includes(perm);
+
+/** Is this optional module turned on for the restaurant? */
+export const hasModule = (t: Tenant | null | undefined, key: string) => !!t?.modules?.includes(key);
 
 /** multipart/form-data upload (CSV / menu photos). */
 export async function upload<T = unknown>(path: string, files: File[], field = "file"): Promise<T> {

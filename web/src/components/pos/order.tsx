@@ -721,9 +721,9 @@ function PayPanel({ order, title, onBack, onUpdate, onDone }: {
     if (r.status === "paid") {
       setDone(r);
       if (s.tenant?.auto_print_receipt) void run(printOrder(r, s.tenant, fmt, "receipt", { drawer: method === "cash" }));
-      else if (method === "cash") void openDrawer();
+      else if (method === "cash") void openDrawer(s.tenant);
     } else {
-      if (method === "cash") void openDrawer();
+      if (method === "cash") void openDrawer(s.tenant);
       onUpdate(r);
       toast.success(`${fmt(charge)} by ${METHOD_LABEL[method]} · ${fmt(r.balance)} left`);
     }

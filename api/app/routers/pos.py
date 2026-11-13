@@ -10,7 +10,7 @@ from sqlalchemy import func, or_, select, update
 from sqlalchemy.orm import Session, selectinload
 
 from ..db import get_db
-from ..deps import PERMISSIONS, Ctx, require
+from ..deps import PERMISSIONS, Ctx, needs, require
 from ..live import ALL_TOPICS, audit
 from ..models import DiningTable, Kot, LiveRev, MenuItem, ModifierGroup, Order, OrderItem, Payment, Tenant, now
 
@@ -677,7 +677,7 @@ def recall(kot_id: str, station: str = "", ctx: Ctx = Depends(require("kds")), d
 
 # ---------- Online orders (aggregators / website) ----------
 
-@router.get("/online")
+@router.get("/online", dependencies=[Depends(needs("online"))])
 def online(ctx: Ctx = Depends(require("online")), db: Session = Depends(get_db)):
     os_ = db.scalars(select(Order).where(Order.tenant_id == ctx.tenant_id, Order.channel.in_(ONLINE_CHANNELS),
                                          Order.status.in_(("new", "open")))
@@ -692,7 +692,7 @@ class OnlineIn(BaseModel):
     items: list[AddItemIn]
 
 
-@router.post("/online/inbound", status_code=201)
+@router.post("/online/inbound", status_code=201, dependencies=[Depends(needs("online"))])
 def inbound(body: OnlineIn, ctx: Ctx = Depends(require("online")), db: Session = Depends(get_db)):
     """Ingest an aggregator order. Real delivery-partner webhooks map onto this."""
     if body.channel not in ONLINE_CHANNELS:
@@ -708,7 +708,7 @@ def inbound(body: OnlineIn, ctx: Ctx = Depends(require("online")), db: Session =
     return save(db, ctx, o)
 
 
-@router.post("/online/{oid}/accept")
+@router.post("/online/{oid}/accept", dependencies=[Depends(needs("online"))])
 def accept(oid: str, ctx: Ctx = Depends(require("online")), db: Session = Depends(get_db)):
     o = load_order(db, ctx, oid)
     if o.status != "new":
@@ -724,7 +724,7 @@ def accept(oid: str, ctx: Ctx = Depends(require("online")), db: Session = Depend
     return order_out(load_order(db, ctx, oid))
 
 
-@router.post("/online/{oid}/reject")
+@router.post("/online/{oid}/reject", dependencies=[Depends(needs("online"))])
 def reject_online(oid: str, ctx: Ctx = Depends(require("online")), db: Session = Depends(get_db)):
     o = load_order(db, ctx, oid)
     if o.status != "new":
@@ -734,7 +734,7 @@ def reject_online(oid: str, ctx: Ctx = Depends(require("online")), db: Session =
     return {"ok": True}
 
 
-@router.post("/online/{oid}/complete")
+@router.post("/online/{oid}/complete", dependencies=[Depends(needs("online"))])
 def complete_online(oid: str, ctx: Ctx = Depends(require("online")), db: Session = Depends(get_db)):
     """Handed to the rider: the partner already collected payment, so settle the check as paid online."""
     o = load_order(db, ctx, oid)

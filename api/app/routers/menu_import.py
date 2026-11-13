@@ -14,7 +14,7 @@ from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from ..db import get_db
-from ..deps import Ctx, require
+from ..deps import Ctx, needs, require
 from ..models import MenuCategory, MenuItem
 
 router = APIRouter(prefix="/menu/import", tags=["menu-import"])
@@ -175,7 +175,7 @@ def ocr_client() -> anthropic.Anthropic:
     return anthropic.Anthropic(timeout=240.0)
 
 
-@router.post("/ocr", response_model=Preview)
+@router.post("/ocr", response_model=Preview, dependencies=[Depends(needs("menu_scan"))])
 async def import_ocr(files: list[UploadFile] = File(...), ctx: Ctx = Depends(require("menu_edit"))):
     if not files or len(files) > 8:
         raise HTTPException(422, "Upload between 1 and 8 menu photos or PDFs")

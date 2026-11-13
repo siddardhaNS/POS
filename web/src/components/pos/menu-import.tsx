@@ -4,7 +4,7 @@ import { useRef, useState } from "react";
 import { toast } from "sonner";
 import { AlertTriangle, Camera, Download, FileSpreadsheet, Loader2, ScanText, Trash2, Upload } from "lucide-react";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
-import { API_URL, api, upload } from "@/lib/api";
+import { API_URL, api, hasModule, upload } from "@/lib/api";
 import { cn } from "@/lib/utils";
 import { VegDot, usePos } from "./shared";
 
@@ -13,7 +13,8 @@ interface Preview { rows: Row[]; warnings: string[] }
 
 export function MenuImport({ open, onOpenChange, onDone }: { open: boolean; onOpenChange: (o: boolean) => void; onDone: () => void }) {
   const { s } = usePos();
-  const [tab, setTab] = useState<"ocr" | "csv">("ocr");
+  const scan = hasModule(s.tenant, "menu_scan");
+  const [tab, setTab] = useState<"ocr" | "csv">(scan ? "ocr" : "csv");
   const [busy, setBusy] = useState(false);
   const [rows, setRows] = useState<Row[] | null>(null);
   const [warnings, setWarnings] = useState<string[]>([]);
@@ -73,7 +74,7 @@ export function MenuImport({ open, onOpenChange, onDone }: { open: boolean; onOp
         {!rows ? (
           <>
             <div className="grid grid-cols-2 gap-2 rounded-xl bg-muted p-1">
-              {([["ocr", "Scan menu (OCR)", ScanText], ["csv", "CSV file", FileSpreadsheet]] as const).map(([k, l, Icon]) => (
+              {([["ocr", "Scan menu (OCR)", ScanText], ["csv", "CSV file", FileSpreadsheet]] as const).filter(([k]) => scan || k !== "ocr").map(([k, l, Icon]) => (
                 <button key={k} onClick={() => setTab(k)}
                   className={cn("flex items-center justify-center gap-2 rounded-lg py-2 text-sm font-medium", tab === k ? "bg-card shadow-sm" : "text-muted-foreground")}>
                   <Icon className="size-4" />{l}

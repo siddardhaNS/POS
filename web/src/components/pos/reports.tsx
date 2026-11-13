@@ -4,7 +4,7 @@ import { useMemo, useState } from "react";
 import { toast } from "sonner";
 import { Download, Printer } from "lucide-react";
 import { Input } from "@/components/ui/input";
-import { API_URL, session } from "@/lib/api";
+import { API_URL, hasModule, session } from "@/lib/api";
 import { cn } from "@/lib/utils";
 import { type DrawerReport, esc, header, printHtml } from "./print";
 import { Empty, METHOD_LABEL, Seg, usePoll, usePos } from "./shared";
@@ -117,7 +117,9 @@ export function ReportsScreen() {
   const [preset, setPreset] = useState<Preset>("today");
   const [custom, setCustom] = useState<[string, string]>([addDays(today, -6), today]);
   const [compare, setCompare] = useState(true);
-  const [tab, setTab] = useState<Tab>("overview");
+  const [picked, setTab] = useState<Tab>("overview");
+  const plus = hasModule(s.tenant, "reports_plus");
+  const tab: Tab = plus || picked === "overview" || picked === "eod" ? picked : "overview";
   const [start, end] = preset === "custom" ? custom : rangeFor(preset, today);
   const q = `start=${start}&end=${end}${compare ? "&compare=1" : ""}`;
 
@@ -141,7 +143,9 @@ export function ReportsScreen() {
         <span className="ml-auto text-sm text-muted-foreground">{start === end ? shortDate(start) : `${shortDate(start)} – ${shortDate(end)}`}</span>
       </div>
       <div className="overflow-x-auto">
-        <Seg value={tab} onChange={setTab} options={[["overview", "Overview"], ["items", "Items"], ["staff", "Staff"], ["payments", "Payments & channels"], ["exceptions", "Exceptions"], ["tax", "Tax"], ["eod", "End of day"]]} />
+        <Seg value={tab} onChange={setTab} options={plus
+          ? [["overview", "Overview"], ["items", "Items"], ["staff", "Staff"], ["payments", "Payments & channels"], ["exceptions", "Exceptions"], ["tax", "Tax"], ["eod", "End of day"]]
+          : [["overview", "Overview"], ["eod", "End of day"]]} />
       </div>
       {tab === "overview" && <OverviewTab q={q} start={start} end={end} />}
       {tab === "items" && <ItemsTab q={q} start={start} end={end} />}
@@ -181,6 +185,8 @@ function Kpi({ label, value, d, invert, sub }: { label: string; value: string; d
 }
 
 function CsvButton({ report, start, end }: { report: string; start: string; end: string }) {
+  const { s } = usePos();
+  if (!hasModule(s.tenant, "reports_plus")) return null; // CSV export is part of Advanced reports
   return (
     <button onClick={() => downloadCsv(report, start, end)} className="flex h-8 items-center gap-1.5 rounded-lg bg-muted px-3 text-xs font-semibold">
       <Download className="size-3.5" />CSV

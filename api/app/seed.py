@@ -6,6 +6,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from .config import settings
+from .deps import MODULES
 from .models import DiningTable, FloorSection, MenuCategory, MenuItem, ModifierGroup, ModifierOption, Tenant, User, now
 from .security import hash_secret
 
@@ -144,6 +145,7 @@ def ensure_demo(db: Session) -> None:
         t = Tenant(name=name, slug=slug, market=market, contact_name=contact, email=email, city=city,
                    cuisine="Indian", status=status, **MARKETS[market])
         if status == "trial":
+            t.modules = list(MODULES)  # the live demo restaurants show everything
             t.reviewed_at = now()
             t.trial_ends_at = now() + timedelta(days=settings.trial_days)
         db.add(t)

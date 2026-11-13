@@ -1,7 +1,7 @@
 "use client";
 
 import { useContext, useEffect, useRef } from "react";
-import { ApiError, api, type Tenant } from "@/lib/api";
+import { ApiError, api, hasModule, type Tenant } from "@/lib/api";
 import { b64bytes, deviceReceiptPrinter, pairedIds, sendToPrinter } from "@/lib/printers";
 import { printReceipt } from "./print";
 import { Live } from "./shared";
@@ -13,14 +13,16 @@ interface ClaimedJob { id: string; printer_id: string; title: string; escpos: st
  * Print host: when USB / serial printers are paired with this device, take their queued jobs from the API and
  * send them. Runs whenever the print topic moves on the live feed, and every few seconds as a safety net.
  */
-export function usePrintHost() {
+export function usePrintHost(enabled = true) {
   const revs = useContext(Live);
   const busy = useRef(false);
+  const enabledRef = useRef(enabled);
+  enabledRef.current = enabled;
   const again = useRef(false);
 
   const pump = useRef(async () => {
     if (busy.current) { again.current = true; return; }
-    const ids = pairedIds();
+    const ids = enabledRef.current ? pairedIds() : [];
     if (!ids.length) return;
     busy.current = true;
     try {
@@ -61,6 +63,10 @@ export function usePrintHost() {
  */
 export async function printOrder(o: Order, t: Tenant | null | undefined, fmt: (v: number) => string,
   kind: "bill" | "receipt" = "receipt", opts: { drawer?: boolean } = {}): Promise<string | null> {
+  if (!hasModule(t, "printing")) {
+    printReceipt(o, t, fmt, kind);
+    return null;
+  }
   try {
     const r = await api<{ printer: string }>(`/print/orders/${o.id}`, {
       body: { kind, printer_id: deviceReceiptPrinter(), drawer: !!opts.drawer },
@@ -76,7 +82,8 @@ export async function printOrder(o: Order, t: Tenant | null | undefined, fmt: (v
 }
 
 /** Open the cash drawer on this device's receipt printer, if it has one. Silent when there's no printer. */
-export async function openDrawer() {
+export async function openDrawer(t?: Tenant | null) {
+  if (!hasModule(t, "printing")) return;
   try {
     await api("/print/drawer", { body: { printer_id: deviceReceiptPrinter() } });
   } catch { /* no receipt printer or no drawer: nothing to open */ }

@@ -22,7 +22,7 @@ from sqlalchemy.orm import Session
 
 from .. import escpos, printdocs
 from ..db import get_db
-from ..deps import LIVE_STATUSES, PERMISSIONS, Ctx, require, tenant_user
+from ..deps import LIVE_STATUSES, PERMISSIONS, Ctx, has_module, needs, require, tenant_user
 from ..models import Kot, Order, OrderItem, Printer, PrintJob, Tenant, now
 from .pos import load_order
 
@@ -44,6 +44,8 @@ def kitchen_printers(db: Session, tenant_id: str) -> list[Printer]:
 
 def queue_kot(db: Session, ctx: Ctx, o: Order, k: Kot, items: list[OrderItem]) -> tuple[int, bool]:
     """Queue one ticket per kitchen printer with just its items. Returns (jobs queued, restaurant has kitchen printers)."""
+    if not has_module(ctx.tenant, "printing"):
+        return 0, False
     printers = kitchen_printers(db, ctx.tenant_id)
     if not printers:
         return 0, False
@@ -157,13 +159,13 @@ def get_printer(db: Session, ctx: Ctx, pid: str) -> Printer:
     return p
 
 
-@router.get("/printers")
+@router.get("/printers", dependencies=[Depends(needs("printing"))])
 def list_printers(ctx: Ctx = Depends(tenant_user), db: Session = Depends(get_db)):
     ps = db.scalars(select(Printer).where(Printer.tenant_id == ctx.tenant_id).order_by(Printer.sort, Printer.created_at)).all()
     return [printer_out(p) for p in ps]
 
 
-@router.post("/printers", status_code=201)
+@router.post("/printers", status_code=201, dependencies=[Depends(needs("printing"))])
 def create_printer(body: PrinterIn, ctx: Ctx = Depends(require("settings")), db: Session = Depends(get_db)):
     first_kitchen = body.role == "kitchen" and not db.scalar(
         select(Printer.id).where(Printer.tenant_id == ctx.tenant_id, Printer.role == "kitchen").limit(1))
@@ -179,7 +181,7 @@ def create_printer(body: PrinterIn, ctx: Ctx = Depends(require("settings")), db:
     return printer_out(p)
 
 
-@router.patch("/printers/{pid}")
+@router.patch("/printers/{pid}", dependencies=[Depends(needs("printing"))])
 def edit_printer(pid: str, body: PrinterPatch, ctx: Ctx = Depends(require("settings")), db: Session = Depends(get_db)):
     p = get_printer(db, ctx, pid)
     for k, v in body.model_dump(exclude_unset=True).items():
@@ -192,14 +194,14 @@ def edit_printer(pid: str, body: PrinterPatch, ctx: Ctx = Depends(require("setti
     return printer_out(p)
 
 
-@router.delete("/printers/{pid}")
+@router.delete("/printers/{pid}", dependencies=[Depends(needs("printing"))])
 def delete_printer(pid: str, ctx: Ctx = Depends(require("settings")), db: Session = Depends(get_db)):
     db.delete(get_printer(db, ctx, pid))
     db.commit()
     return {"ok": True}
 
 
-@router.post("/printers/{pid}/test")
+@router.post("/printers/{pid}/test", dependencies=[Depends(needs("printing"))])
 def test_printer(pid: str, ctx: Ctx = Depends(require("settings")), db: Session = Depends(get_db)):
     p = get_printer(db, ctx, pid)
     j = add_job(db, ctx.tenant_id, p, "test", f"Test page · {p.name}", printdocs.test_doc(ctx.tenant, p))
@@ -224,7 +226,7 @@ class PrintOrderIn(BaseModel):
     drawer: bool = False
 
 
-@router.post("/print/orders/{oid}")
+@router.post("/print/orders/{oid}", dependencies=[Depends(needs("printing"))])
 def print_order(oid: str, body: PrintOrderIn, ctx: Ctx = Depends(require("order")), db: Session = Depends(get_db)):
     o = load_order(db, ctx, oid)
     p = receipt_printer(db, ctx, body.printer_id)
@@ -240,7 +242,7 @@ class DrawerIn(BaseModel):
     printer_id: str | None = Field(default=None, max_length=36)
 
 
-@router.post("/print/drawer")
+@router.post("/print/drawer", dependencies=[Depends(needs("printing"))])
 def kick_drawer(body: DrawerIn, ctx: Ctx = Depends(require("pay")), db: Session = Depends(get_db)):
     """Open the cash drawer wired to a receipt printer. No-op when that printer has no drawer."""
     p = receipt_printer(db, ctx, body.printer_id)
@@ -258,7 +260,7 @@ def job_out(j: PrintJob, names: dict[str, str]) -> dict:
             "created_at": j.created_at.isoformat(), "printed_at": j.printed_at.isoformat() if j.printed_at else None}
 
 
-@router.get("/print/jobs")
+@router.get("/print/jobs", dependencies=[Depends(needs("printing"))])
 def list_jobs(status: str = "recent", ctx: Ctx = Depends(require("settings")), db: Session = Depends(get_db)):
     q = select(PrintJob).where(PrintJob.tenant_id == ctx.tenant_id)
     if status == "failed":
@@ -274,7 +276,7 @@ class RetryIn(BaseModel):
     printer_id: str | None = Field(default=None, max_length=36)
 
 
-@router.post("/print/jobs/{jid}/retry")
+@router.post("/print/jobs/{jid}/retry", dependencies=[Depends(needs("printing"))])
 def retry_job(jid: str, body: RetryIn | None = None, ctx: Ctx = Depends(require("settings")), db: Session = Depends(get_db)):
     j = db.scalar(select(PrintJob).where(PrintJob.id == jid, PrintJob.tenant_id == ctx.tenant_id))
     if not j:
@@ -286,7 +288,7 @@ def retry_job(jid: str, body: RetryIn | None = None, ctx: Ctx = Depends(require(
     return {"ok": True}
 
 
-@router.delete("/print/jobs/{jid}")
+@router.delete("/print/jobs/{jid}", dependencies=[Depends(needs("printing"))])
 def dismiss_job(jid: str, ctx: Ctx = Depends(require("settings")), db: Session = Depends(get_db)):
     j = db.scalar(select(PrintJob).where(PrintJob.id == jid, PrintJob.tenant_id == ctx.tenant_id))
     if j:
@@ -356,7 +358,7 @@ class ClaimIn(BaseModel):
     printer_ids: list[str] = Field(default_factory=list, max_length=20)
 
 
-@router.post("/print/claim")
+@router.post("/print/claim", dependencies=[Depends(needs("printing"))])
 def device_claim(body: ClaimIn, ctx: Ctx = Depends(tenant_user), db: Session = Depends(get_db)):
     """A POS device with paired USB / serial printers asks for their jobs (any signed-in role: it may be a chef's KDS)."""
     if not body.printer_ids:
@@ -366,7 +368,7 @@ def device_claim(body: ClaimIn, ctx: Ctx = Depends(tenant_user), db: Session = D
     return claim(db, ctx.tenant_id, list(ps))
 
 
-@router.post("/print/jobs/{jid}/result")
+@router.post("/print/jobs/{jid}/result", dependencies=[Depends(needs("printing"))])
 def device_result(jid: str, body: ResultIn, ctx: Ctx = Depends(tenant_user), db: Session = Depends(get_db)):
     return apply_result(db, ctx.tenant_id, jid, body)
 
@@ -387,10 +389,12 @@ def bridge_tenant(x_print_key: str = Header(default="", alias="X-Print-Key"), db
         raise HTTPException(401, "This print key is no longer valid. Generate a new one in Settings → Printers.")
     if t.status not in LIVE_STATUSES:
         raise HTTPException(403, f"Restaurant account is {t.status}")
+    if not has_module(t, "printing"):
+        raise HTTPException(403, "Direct printing isn't turned on for this restaurant")
     return t
 
 
-@router.get("/print/bridge")
+@router.get("/print/bridge", dependencies=[Depends(needs("printing"))])
 def bridge_status(ctx: Ctx = Depends(require("settings")), db: Session = Depends(get_db)):
     h = db.scalar(text("SELECT print_key_hash FROM tenants WHERE id = :id"), {"id": ctx.tenant_id})
     seen = db.scalar(select(Printer.last_seen_at).where(Printer.tenant_id == ctx.tenant_id,
@@ -399,7 +403,7 @@ def bridge_status(ctx: Ctx = Depends(require("settings")), db: Session = Depends
     return {"has_key": bool(h), "last_seen_at": seen.isoformat() if seen else None, "online": bool(seen and now() - seen < ONLINE)}
 
 
-@router.post("/print/bridge/key")
+@router.post("/print/bridge/key", dependencies=[Depends(needs("printing"))])
 def bridge_key(ctx: Ctx = Depends(require("settings")), db: Session = Depends(get_db)):
     """Create a new print bridge key (replacing any old one). It is shown once; only its hash is stored."""
     key = "tpk_" + secrets.token_urlsafe(24)

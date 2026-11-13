@@ -16,14 +16,15 @@ import { LockScreen } from "@/components/pos/lock-screen";
 import { OrderScreen } from "@/components/pos/order";
 import { usePrintHost } from "@/components/pos/print-host";
 import { Live, Pos, type Screen, chime, useFmt, useLiveFeed, usePoll } from "@/components/pos/shared";
-import { can, session, type Session, type Tenant } from "@/lib/api";
+import { api, can, hasModule, session, type Session, type Tenant } from "@/lib/api";
 import { cn } from "@/lib/utils";
 
-const MODULES: { k: Screen; l: string; perm: string; group: "SERVICE" | "MANAGE"; icon: React.ComponentType<{ className?: string }> }[] = [
+// `module`: an optional module the restaurant must have turned on (set per restaurant in the admin console).
+const MODULES: { k: Screen; l: string; perm: string; module?: string; group: "SERVICE" | "MANAGE"; icon: React.ComponentType<{ className?: string }> }[] = [
   { k: "floor", l: "Floor", perm: "floor", group: "SERVICE", icon: LayoutGrid },
   { k: "order", l: "Current check", perm: "order", group: "SERVICE", icon: ReceiptText },
   { k: "orders", l: "Order history", perm: "history", group: "SERVICE", icon: History },
-  { k: "online", l: "Online orders", perm: "online", group: "SERVICE", icon: Bike },
+  { k: "online", l: "Online orders", perm: "online", module: "online", group: "SERVICE", icon: Bike },
   { k: "kds", l: "Kitchen", perm: "kds", group: "SERVICE", icon: ChefHat },
   { k: "cash", l: "Cash drawer", perm: "cash", group: "SERVICE", icon: Wallet },
   { k: "dash", l: "Reports", perm: "reports", group: "MANAGE", icon: BarChart3 },
@@ -53,7 +54,7 @@ export default function PosPage() {
     else setLocked(true);
   }, [router]);
 
-  const allowed = useMemo(() => (s ? MODULES.filter((m) => can(s.user, m.perm)) : []), [s]);
+  const allowed = useMemo(() => (s ? MODULES.filter((m) => can(s.user, m.perm) && (!m.module || hasModule(s.tenant, m.module))) : []), [s]);
 
   useEffect(() => {
     if (s && !allowed.find((m) => m.k === screen)) setScreen(allowed[0]?.k ?? "floor");
@@ -110,8 +111,19 @@ function ShellInner({ s, screen, go, orderId, payNow, allowed, navOpen, setNavOp
   allowed: typeof MODULES; navOpen: boolean; setNavOpen: (v: boolean) => void; onLock: () => void; setTenant: (t: Tenant) => void;
   fmt: (v: number) => string;
 }) {
-  usePrintHost();
-  const { data: online } = usePoll<{ status: string }[]>(can(s.user, "online") ? "/online" : null, 30000, "online");
+  usePrintHost(hasModule(s.tenant, "printing"));
+  // Pick up restaurant changes made elsewhere (e.g. modules turned on in the admin console) without signing in again.
+  useEffect(() => {
+    const refresh = () => {
+      if (document.hidden) return;
+      api<Tenant>("/pos/tenant").then((t) => { if (JSON.stringify(t) !== JSON.stringify(s.tenant)) setTenant(t); }).catch(() => {});
+    };
+    refresh();
+    const timer = setInterval(refresh, 120_000);
+    document.addEventListener("visibilitychange", refresh);
+    return () => { clearInterval(timer); document.removeEventListener("visibilitychange", refresh); };
+  }, [s.tenant, setTenant]);
+  const { data: online } = usePoll<{ status: string }[]>(can(s.user, "online") && hasModule(s.tenant, "online") ? "/online" : null, 30000, "online");
   const { data: kds } = usePoll<unknown[]>(can(s.user, "kds") ? "/kds" : null, 30000, "kds");
   const fresh = online?.filter((o) => o.status === "new").length ?? 0;
   const tickets = kds?.length ?? 0;

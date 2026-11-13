@@ -8,7 +8,7 @@ from sqlalchemy.orm import Session
 
 from ..config import settings
 from ..db import get_db
-from ..deps import Ctx, platform_admin
+from ..deps import MODULES, Ctx, platform_admin
 from ..models import Order, Tenant, User, now
 from ..seed import provision_tenant
 
@@ -22,7 +22,7 @@ def row(t: Tenant, users: int = 0) -> dict:
         "id": t.id, "name": t.name, "slug": t.slug, "market": t.market, "status": t.status,
         "contact_name": t.contact_name, "email": t.email, "phone": t.phone, "city": t.city,
         "cuisine": t.cuisine, "outlets": t.outlets, "service_style": t.service_style, "message": t.message,
-        "review_note": t.review_note, "users": users,
+        "review_note": t.review_note, "users": users, "modules": [m for m in (t.modules or []) if m in MODULES],
         "created_at": t.created_at.isoformat(),
         "reviewed_at": t.reviewed_at.isoformat() if t.reviewed_at else None,
         "trial_ends_at": t.trial_ends_at.isoformat() if t.trial_ends_at else None,
@@ -95,5 +95,26 @@ def set_status(tid: str, body: StatusIn, _: Ctx = Depends(platform_admin), db: S
     if t.status in ("pending", "rejected"):
         raise HTTPException(409, "Approve the restaurant first")
     t.status = body.status
+    db.commit()
+    return row(t)
+
+
+@router.get("/modules")
+def modules(_: Ctx = Depends(platform_admin)):
+    """Optional modules that can be turned on per restaurant (everything else is basic and always on)."""
+    return [{"key": k, "label": label, "description": d} for k, (label, d) in MODULES.items()]
+
+
+class ModulesIn(BaseModel):
+    modules: list[str] = Field(default_factory=list, max_length=50)
+
+
+@router.put("/tenants/{tid}/modules")
+def set_modules(tid: str, body: ModulesIn, _: Ctx = Depends(platform_admin), db: Session = Depends(get_db)):
+    unknown = sorted(set(body.modules) - set(MODULES))
+    if unknown:
+        raise HTTPException(422, f"Unknown module: {', '.join(unknown)}")
+    t = get_tenant(db, tid)
+    t.modules = [k for k in MODULES if k in body.modules]
     db.commit()
     return row(t)

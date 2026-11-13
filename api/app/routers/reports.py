@@ -24,7 +24,7 @@ from sqlalchemy import and_, case, func, or_, select
 from sqlalchemy.orm import Session, selectinload
 
 from ..db import get_db
-from ..deps import Ctx, require
+from ..deps import Ctx, needs, require
 from ..models import AuditLog, CashSession, DiningTable, MenuCategory, MenuItem, Order, OrderItem, Payment, User
 from .cash import summarize as summarize_drawer
 from .pos import money, tenant_tz
@@ -401,7 +401,7 @@ def overview(start: date | None = None, end: date | None = None, compare: bool =
     return out
 
 
-@router.get("/reports/items")
+@router.get("/reports/items", dependencies=[Depends(needs("reports_plus"))])
 def items(start: date | None = None, end: date | None = None, compare: bool = False,
           ctx: Ctx = Depends(require("reports")), db: Session = Depends(get_db)):
     p, ids = period(ctx, start, end), [ctx.tenant_id]
@@ -417,7 +417,7 @@ def items(start: date | None = None, end: date | None = None, compare: bool = Fa
     return out
 
 
-@router.get("/reports/payments")
+@router.get("/reports/payments", dependencies=[Depends(needs("reports_plus"))])
 def payments(start: date | None = None, end: date | None = None, compare: bool = False,
              ctx: Ctx = Depends(require("reports")), db: Session = Depends(get_db)):
     p, ids = period(ctx, start, end), [ctx.tenant_id]
@@ -429,13 +429,13 @@ def payments(start: date | None = None, end: date | None = None, compare: bool =
     return out
 
 
-@router.get("/reports/staff")
+@router.get("/reports/staff", dependencies=[Depends(needs("reports_plus"))])
 def staff(start: date | None = None, end: date | None = None, compare: bool = False,
           ctx: Ctx = Depends(require("reports")), db: Session = Depends(get_db)):
     return _with_compare(staff_performance, db, [ctx.tenant_id], period(ctx, start, end), compare, "staff")
 
 
-@router.get("/reports/exceptions")
+@router.get("/reports/exceptions", dependencies=[Depends(needs("reports_plus"))])
 def exceptions_report(start: date | None = None, end: date | None = None, compare: bool = False,
                       ctx: Ctx = Depends(require("reports")), db: Session = Depends(get_db)):
     p, ids = period(ctx, start, end), [ctx.tenant_id]
@@ -446,7 +446,7 @@ def exceptions_report(start: date | None = None, end: date | None = None, compar
     return out
 
 
-@router.get("/reports/tax")
+@router.get("/reports/tax", dependencies=[Depends(needs("reports_plus"))])
 def tax(start: date | None = None, end: date | None = None, compare: bool = False,
         ctx: Ctx = Depends(require("reports")), db: Session = Depends(get_db)):
     p, ids = period(ctx, start, end), [ctx.tenant_id]
@@ -516,7 +516,7 @@ EXPORTS: dict[str, tuple[list[tuple[str, str]], object]] = {
 }
 
 
-@router.get("/reports/export.csv")
+@router.get("/reports/export.csv", dependencies=[Depends(needs("reports_plus"))])
 def export_csv(report: str, start: date | None = None, end: date | None = None,
                ctx: Ctx = Depends(require("reports")), db: Session = Depends(get_db)):
     if report not in EXPORTS:

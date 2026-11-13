@@ -16,9 +16,10 @@ import { cn } from "@/lib/utils";
 interface TenantRow {
   id: string; name: string; slug: string; market: "IN" | "US"; status: string;
   contact_name: string; email: string; phone: string; city: string; cuisine: string;
-  outlets: number; service_style: string; message: string; review_note: string; users: number;
+  outlets: number; service_style: string; message: string; review_note: string; users: number; modules: string[];
   created_at: string; reviewed_at: string | null; trial_ends_at: string | null;
 }
+interface ModuleDef { key: string; label: string; description: string }
 interface Stats { by_status: Record<string, number>; live_by_market: Record<string, number>; paid_orders: number }
 
 const FILTERS = [
@@ -58,6 +59,7 @@ export default function AdminPage() {
   const [sel, setSel] = useState<TenantRow | null>(null);
   const [note, setNote] = useState("");
   const [busy, setBusy] = useState(false);
+  const [catalogue, setCatalogue] = useState<ModuleDef[]>([]);
 
   useEffect(() => {
     const s = session.get();
@@ -81,6 +83,23 @@ export default function AdminPage() {
       if (!session.get()) router.replace("/login");
     }
   }, [filter, q, router]);
+
+  useEffect(() => {
+    if (ready) api<ModuleDef[]>("/admin/modules").then(setCatalogue).catch(() => {});
+  }, [ready]);
+
+  async function toggleModule(t: TenantRow, key: string, on: boolean) {
+    const next = on ? [...t.modules, key] : t.modules.filter((m) => m !== key);
+    setSel({ ...t, modules: next }); // optimistic; the restaurant's devices pick it up within a couple of minutes
+    try {
+      const updated = await api<TenantRow>(`/admin/tenants/${t.id}/modules`, { method: "PUT", body: { modules: next } });
+      setSel((cur) => (cur && cur.id === t.id ? { ...cur, ...updated } : cur));
+      setRows((rs) => rs.map((r) => (r.id === t.id ? { ...r, modules: updated.modules } : r)));
+    } catch (e) {
+      setSel(t);
+      toast.error((e as Error).message);
+    }
+  }
 
   useEffect(() => {
     if (!ready) return;
@@ -245,6 +264,26 @@ export default function AdminPage() {
                   {sel.reviewed_at && <span>Reviewed {fmtDate(sel.reviewed_at)}</span>}
                   {sel.trial_ends_at && <span>Trial ends {fmtDate(sel.trial_ends_at)}</span>}
                   <span>{sel.users} user{sel.users === 1 ? "" : "s"}</span>
+                </div>
+              )}
+
+              {sel.status !== "rejected" && !!catalogue.length && (
+                <div className="border-t border-border pt-4">
+                  <div className="font-mono text-[11px] uppercase tracking-[0.08em] text-muted-foreground">Modules</div>
+                  <p className="mt-1 text-sm text-muted-foreground">
+                    Floor, checks, kitchen display, cash drawer, menu, staff, floor plan and basic reports are always on. Turn on extras here.
+                  </p>
+                  <div className="mt-3 grid gap-2">
+                    {catalogue.map((m) => {
+                      const on = sel.modules.includes(m.key);
+                      return (
+                        <label key={m.key} className="flex cursor-pointer items-start gap-3 rounded-xl bg-muted/60 p-3">
+                          <input type="checkbox" checked={on} onChange={(e) => toggleModule(sel, m.key, e.target.checked)} className="mt-0.5 size-4 accent-foreground" />
+                          <span className="min-w-0"><span className="block text-sm font-medium">{m.label}</span><span className="block text-xs text-muted-foreground">{m.description}</span></span>
+                        </label>
+                      );
+                    })}
+                  </div>
                 </div>
               )}
 

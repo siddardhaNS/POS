@@ -7,7 +7,7 @@ from sqlalchemy.orm import Session
 
 from ..db import get_db
 from ..live import audit
-from ..deps import LIVE_STATUSES, PERMISSIONS, Ctx, current_user, tenant_user
+from ..deps import LIVE_STATUSES, MODULES, PERMISSIONS, Ctx, current_user, tenant_user
 from ..models import Tenant, User
 from ..security import create_token, hash_secret, verify_secret
 from ..seed import MARKETS
@@ -24,6 +24,7 @@ def tenant_out(t: Tenant | None) -> dict | None:
         "phone": t.phone, "city": t.city, "address": t.address, "tax_id": t.tax_id, "timezone": t.timezone,
         "tips_enabled": t.tips_enabled, "receipt_footer": t.receipt_footer,
         "auto_print_kot": t.auto_print_kot, "auto_print_receipt": t.auto_print_receipt,
+        "modules": [m for m in (t.modules or []) if m in MODULES],
         "trial_ends_at": t.trial_ends_at.isoformat() if t.trial_ends_at else None,
     }
 
@@ -83,6 +84,12 @@ def change_password(body: PasswordIn, ctx: Ctx = Depends(current_user), db: Sess
 class PinIn(BaseModel):
     user_id: str
     pin: str = Field(pattern=r"^\d{4}$")
+
+
+@router.get("/pos/tenant")
+def my_tenant(ctx: Ctx = Depends(tenant_user)):
+    """The restaurant as devices see it (settings and modules), so they pick up changes without signing in again."""
+    return tenant_out(ctx.tenant)
 
 
 @router.get("/pos/staff")

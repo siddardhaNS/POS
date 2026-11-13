@@ -46,6 +46,7 @@ class Tenant(Base):
     timezone: Mapped[str] = mapped_column(String(64), default="UTC")
     tips_enabled: Mapped[bool] = mapped_column(Boolean, default=False)
     receipt_footer: Mapped[str] = mapped_column(Text, default="Thank you! See you again soon.")
+    modules: Mapped[list] = mapped_column(JSON, default=list)  # optional modules turned on (see deps.MODULES)
     auto_print_kot: Mapped[bool] = mapped_column(Boolean, default=False)
     auto_print_receipt: Mapped[bool] = mapped_column(Boolean, default=False)
 

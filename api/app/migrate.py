@@ -20,6 +20,11 @@ COLUMNS: dict[str, list[tuple[str, str, str | None]]] = {
         ("auto_print_kot", "BOOLEAN NOT NULL DEFAULT FALSE", None),
         ("auto_print_receipt", "BOOLEAN NOT NULL DEFAULT FALSE", None),
         ("print_key_hash", "VARCHAR(64) NOT NULL DEFAULT ''", None),
+        # Restaurants already running when modules arrived keep everything they had; applications still awaiting
+        # review (and every new signup) start with the basics.
+        ("modules", "JSON NOT NULL DEFAULT '[]'",
+         """UPDATE tenants SET modules = '["online", "reports_plus", "printing", "menu_scan"]'
+            WHERE status IN ('trial', 'active', 'suspended')"""),
     ],
     "dining_tables": [
         ("section", "VARCHAR(40) NOT NULL DEFAULT 'Main'", None),

@@ -6,7 +6,7 @@ import { ChangePasswordDialog } from "@/components/change-password";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
-import { api, type Tenant } from "@/lib/api";
+import { api, hasModule, type Tenant } from "@/lib/api";
 import { cn } from "@/lib/utils";
 import { printReceipt } from "./print";
 import { PrintersPanel } from "./printers";
@@ -36,7 +36,7 @@ export function SettingsScreen() {
     <div className="flex h-full flex-col gap-5 overflow-auto p-5 md:p-7">
       <div className="flex flex-wrap items-center gap-3">
         <div className="overflow-x-auto">
-          <Seg value={tab} onChange={setTab} options={[["restaurant", "Restaurant"], ["tax", "Taxes & tips"], ["receipts", "Receipts"], ["printers", "Printers"]]} />
+          <Seg value={tab} onChange={setTab} options={[["restaurant", "Restaurant"], ["tax", "Taxes & tips"], ["receipts", "Receipts"], ...(hasModule(s.tenant, "printing") ? [["printers", "Printers"] as ["printers", string]] : [])]} />
         </div>
         <button onClick={() => go("floorplan")} className="flex items-center gap-1.5 rounded-xl bg-card px-3.5 py-2 text-sm font-medium ring-1 ring-border">
           <Armchair className="size-4" />Tables are in Floor plan
@@ -48,7 +48,7 @@ export function SettingsScreen() {
         )}
         <ChangePasswordDialog open={pwOpen} onOpenChange={setPwOpen} />
       </div>
-      {tab === "printers" ? <PrintersPanel /> : <TenantForm tab={tab} />}
+      {tab === "printers" && hasModule(s.tenant, "printing") ? <PrintersPanel /> : <TenantForm tab={tab === "printers" ? "receipts" : tab} />}
     </div>
   );
 }
