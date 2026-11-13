@@ -7,9 +7,10 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { api, can } from "@/lib/api";
 import { cn } from "@/lib/utils";
-import { Empty, Seg, clock, run, useNow, usePoll, usePos } from "./shared";
+import { Seg, clock, run, useNow, usePoll, usePos } from "./shared";
 import type { Order, TableRow } from "./types";
 import { TableGlyph, type PlanSection, gridBg, planBounds, useCell } from "./floorplan";
+import { ServiceTimeline } from "./timeline";
 import { LayoutLayer, asLayout, layoutBounds } from "./layout";
 
 export type { TableRow } from "./types";
@@ -38,13 +39,6 @@ export function Floor() {
     if (o) go("order", { orderId: o.id, pay });
   }
 
-  const busy = (tables ?? []).filter((t) => t.state !== "free");
-  const rank = { unsent: 1, kitchen: 3, served: 2, free: 9 } as const;
-  const timeline = [...busy].map((t) => {
-    const age = t.kitchen_since ? (now - new Date(t.kitchen_since).getTime()) / 60000 : 0;
-    const late = t.state === "kitchen" && age > 15;
-    return { t, age, late, pri: late ? 0 : rank[t.state] };
-  }).sort((a, b) => a.pri - b.pri);
   const sections = plan?.sections.map((x) => x.name) ?? [...new Set((tables ?? []).map((t) => t.section || "Main"))];
   const activeSection = section && sections.includes(section) ? section : sections[0];
 
@@ -52,7 +46,7 @@ export function Floor() {
     <div className="flex h-full flex-col gap-5 overflow-auto p-5 md:p-7">
       <div className="flex flex-wrap items-center gap-4">
         <Seg value={view} onChange={setView} options={[["plan", "Floor plan"], ["map", "Grid"], ["timeline", "Timeline"]]} />
-        <span className="hidden text-sm text-muted-foreground sm:inline">{view === "timeline" ? "Sorted by who needs attention" : "Tap a table to open its check"}</span>
+        <span className="hidden text-sm text-muted-foreground sm:inline">{view === "timeline" ? "Every table across the service, from seating to now" : "Tap a table to open its check"}</span>
         {canOrder && (
           <button onClick={() => setNewTakeaway(true)} className="ml-auto flex items-center gap-2 rounded-xl bg-foreground px-4 py-2.5 text-sm font-semibold text-background">
             <ShoppingBag className="size-4" />New takeaway
@@ -134,34 +128,8 @@ export function Floor() {
             </section>
           ))}
         </>
-      ) : timeline.length === 0 ? (
-        <Empty>No open tables. Everyone&apos;s been served.</Empty>
       ) : (
-        <div className="space-y-2.5">
-          {timeline.map(({ t, age, late }) => {
-            const w = t.state === "unsent" ? 18 : t.state === "kitchen" ? 45 : 80;
-            const c = late ? "bg-chili" : STATE[t.state].dot;
-            const action = t.state === "unsent" || (t.unsent > 0 && t.state === "served") ? `Send ${t.unsent || ""} item${t.unsent === 1 ? "" : "s"}` : late ? `Late · ${Math.floor(age)}m` : t.state === "kitchen" ? `In kitchen · ${Math.floor(age)}m` : can(s.user, "pay") ? "Take payment" : "Print bill";
-            return (
-              <div key={t.id} onClick={() => open(t)} role="button"
-                className={cn("grid cursor-pointer grid-cols-[64px_1fr_auto] items-center gap-4 rounded-2xl border bg-card px-4 py-3.5 md:grid-cols-[72px_1fr_110px_160px]",
-                  late ? "border-[oklch(0.85_0.08_28)]" : "border-border")}>
-                <span className="text-xl font-semibold">{t.name}</span>
-                <div>
-                  <div className="h-2 overflow-hidden rounded-full bg-muted"><div className={cn("h-full rounded-full", c)} style={{ width: `${w}%` }} /></div>
-                  <div className="mt-1.5 text-xs text-muted-foreground">{t.items} items</div>
-                </div>
-                <span className="hidden text-right font-mono text-sm font-semibold tabular md:block">{fmt(t.total)}</span>
-                <button onClick={(e) => { e.stopPropagation(); open(t, t.state === "served"); }}
-                  className={cn("rounded-xl px-3 py-2 text-[13px] font-semibold",
-                    late ? "bg-destructive/10 text-destructive" : t.state === "unsent" ? "bg-foreground text-background" : t.state === "served" ? "bg-saffron text-[#1d1c1a]" : "bg-muted")}>
-                  {action}
-                </button>
-              </div>
-            );
-          })}
-          <div className="pt-2 text-sm text-muted-foreground">{(tables?.length ?? 0) - busy.length} tables free</div>
-        </div>
+        <ServiceTimeline live={tables ?? []} onOpen={open} />
       )}
 
       {newTakeaway && <TakeawayDialog onClose={() => setNewTakeaway(false)} onCreated={(id) => go("order", { orderId: id })} />}

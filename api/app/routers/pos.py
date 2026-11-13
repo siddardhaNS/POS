@@ -160,6 +160,35 @@ def tables(ctx: Ctx = Depends(require("floor")), db: Session = Depends(get_db)):
     return out
 
 
+@router.get("/floor/timeline")
+def floor_timeline(ctx: Ctx = Depends(require("floor")), db: Session = Depends(get_db)):
+    """Today's dine-in checks per table, with each kitchen fire, for the service timeline."""
+    tz = tenant_tz(ctx.tenant)
+    today = datetime.now(tz).date()
+    start = datetime(today.year, today.month, today.day, tzinfo=tz)
+    ts = db.scalars(select(DiningTable).where(DiningTable.tenant_id == ctx.tenant_id).order_by(DiningTable.sort)).all()
+    orders = db.scalars(select(Order).where(
+        Order.tenant_id == ctx.tenant_id, Order.table_id.is_not(None), Order.status.notin_(("merged", "rejected")),
+        or_(Order.status == "open", Order.opened_at >= start)).options(selectinload(Order.items))).all()
+    fires: dict[str, list[dict]] = {}
+    if orders:
+        for k in db.scalars(select(Kot).where(Kot.tenant_id == ctx.tenant_id, Kot.order_id.in_([o.id for o in orders]))
+                            .order_by(Kot.created_at)):
+            fires.setdefault(k.order_id, []).append({"number": k.number, "course": k.course, "at": k.created_at.isoformat(),
+                                                     "bumped_at": k.bumped_at.isoformat() if k.bumped_at else None})
+    by_table: dict[str, list[dict]] = {}
+    for o in sorted(orders, key=lambda x: x.opened_at):
+        by_table.setdefault(o.table_id, []).append({
+            "order_id": o.id, "number": o.number, "status": o.status, "guests": o.guests,
+            "opened_at": o.opened_at.isoformat(), "closed_at": o.closed_at.isoformat() if o.closed_at else None,
+            "total": money(due(o)), "items": sum(i.qty for i in o.items), "unsent": sum(i.qty for i in o.items if i.kot_id is None),
+            "fires": fires.get(o.id, []),
+        })
+    return {"now": now().isoformat(), "day_start": start.isoformat(), "timezone": tz.key,
+            "tables": [{"id": t.id, "name": t.name, "seats": t.seats, "section": t.section, "checks": by_table.get(t.id, [])}
+                       for t in ts]}
+
+
 @router.post("/tables/{table_id}/order")
 def open_table(table_id: str, ctx: Ctx = Depends(require("order")), db: Session = Depends(get_db)):
     """Return the open check for a table, creating one if the table is free."""
