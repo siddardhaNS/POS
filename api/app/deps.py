@@ -20,6 +20,7 @@ MODULES: dict[str, tuple[str, str]] = {
     "printing": ("Direct printing", "Thermal receipt and kitchen printers routed by station, and the print bridge."),
     "menu_scan": ("Menu photo scan", "Build the menu from photos or PDFs of a printed menu."),
     "inventory": ("Inventory", "Stock, recipes and food cost, suppliers and purchase orders, stock counts, low-stock alerts."),
+    "qr_ordering": ("QR ordering", "Guests scan the code on their table to see the menu, order, call a waiter or ask for the bill."),
     "locations": ("Multi-location", "Run several outlets under one business: switch location, add outlets with the menu copied, combined reports, manager access per outlet."),
     "timeclock": ("Staff time", "Clock in and out with a PIN, breaks, timesheets with overtime, labour cost, tip pooling and payroll export."),
 }

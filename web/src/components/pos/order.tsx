@@ -239,7 +239,7 @@ export function OrderScreen() {
                 <span className="mt-0.5 grid size-7 shrink-0 place-items-center rounded-lg bg-muted font-mono text-xs font-semibold">{l.qty}</span>
                 <div className="min-w-0 flex-1">
                   <div className={cn("text-[14.5px] font-medium", l.comp_reason && "line-through decoration-muted-foreground/60")}>
-                    {l.name}{l.seat > 0 && <span className="ml-1.5 rounded bg-muted px-1 font-mono text-[11px] font-semibold text-muted-foreground">S{l.seat}</span>}
+                    {l.name}{l.seat > 0 && <span className="ml-1.5 rounded bg-muted px-1 font-mono text-[11px] font-semibold text-muted-foreground">S{l.seat}</span>}{l.source === "guest" && <span className="ml-1.5 rounded bg-sky/15 px-1.5 text-[11px] font-semibold text-sky" title="Ordered by the guest from the table QR code">Guest</span>}
                   </div>
                   {l.modifiers.length > 0 && <div className="text-xs text-saffron-deep">{l.modifiers.map((m) => m.name).join(" · ")}</div>}
                   {l.note && <div className="text-xs italic text-muted-foreground">“{l.note}”</div>}

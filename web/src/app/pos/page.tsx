@@ -137,16 +137,18 @@ function ShellInner({ s, screen, go, orderId, payNow, allowed, navOpen, setNavOp
   }, [s.tenant, s.user, setTenant]);
   const { data: online } = usePoll<{ status: string }[]>(can(s.user, "online") && hasModule(s.tenant, "online") ? "/online" : null, 30000, "online");
   const { data: kds } = usePoll<unknown[]>(can(s.user, "kds") ? "/kds" : null, 30000, "kds");
+  const { data: asks } = usePoll<unknown[]>(hasModule(s.tenant, "qr_ordering") && can(s.user, "floor") ? "/service-requests" : null, 30000, "requests");
   const fresh = online?.filter((o) => o.status === "new").length ?? 0;
+  const asking = asks?.length ?? 0;
   const tickets = kds?.length ?? 0;
-  const last = useRef<{ fresh: number; tickets: number } | null>(null);
+  const last = useRef<{ fresh: number; tickets: number; asking: number } | null>(null);
   useEffect(() => {
     // Chime when a new online order arrives (anywhere) or a new ticket lands while the kitchen screen is up.
-    if (online == null && kds == null) return;
-    if (last.current && (fresh > last.current.fresh || (screen === "kds" && tickets > last.current.tickets))) chime();
-    last.current = { fresh, tickets };
-  }, [fresh, tickets, online, kds, screen]);
-  const badges: Partial<Record<Screen, number>> = { online: fresh, kds: tickets };
+    if (online == null && kds == null && asks == null) return;
+    if (last.current && (fresh > last.current.fresh || asking > last.current.asking || (screen === "kds" && tickets > last.current.tickets))) chime();
+    last.current = { fresh, tickets, asking };
+  }, [fresh, tickets, asking, online, kds, asks, screen]);
+  const badges: Partial<Record<Screen, number>> = { online: fresh, kds: tickets, floor: asking };
   const act = MODULES.find((m) => m.k === screen)!;
   const ini = s.user.name.split(" ").map((w) => w[0]).join("").slice(0, 2);
   const trialDays = s.tenant?.trial_ends_at && s.tenant.status === "trial"

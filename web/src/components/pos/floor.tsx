@@ -11,6 +11,7 @@ import { Seg, clock, run, useNow, usePoll, usePos } from "./shared";
 import type { Order, TableRow } from "./types";
 import { TableGlyph, type PlanSection, gridBg, planBounds, useCell } from "./floorplan";
 import { ServiceTimeline } from "./timeline";
+import { GuestAlerts } from "./qr";
 import { LayoutLayer, asLayout, layoutBounds } from "./layout";
 
 export type { TableRow } from "./types";
@@ -53,6 +54,8 @@ export function Floor() {
           </button>
         )}
       </div>
+
+      <GuestAlerts onOpenTable={(id) => { const t = tables?.find((x) => x.id === id); if (t) open(t); }} />
 
       {!!counter?.length && (
         <section>

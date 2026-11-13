@@ -50,6 +50,7 @@ class Tenant(Base):
     # Multi-location: the business this outlet belongs to (null = single location) and the outlet's own name
     brand_id: Mapped[str | None] = mapped_column(ForeignKey("brands.id", ondelete="SET NULL"), nullable=True)
     location_name: Mapped[str] = mapped_column(String(80), default="")
+    qr_auto_send: Mapped[bool] = mapped_column(Boolean, default=False)  # guest QR orders go straight to the kitchen
     inventory_auto_86: Mapped[bool] = mapped_column(Boolean, default=False)  # sold out when an ingredient runs out
     # Time clock: staff must clock in before using the POS; overtime thresholds in hours (0 = none)
     require_clock_in: Mapped[bool] = mapped_column(Boolean, default=False)
@@ -110,6 +111,7 @@ class DiningTable(Base):
     x: Mapped[int] = mapped_column(Integer, default=0)  # grid cell, top-left
     y: Mapped[int] = mapped_column(Integer, default=0)
     rotation: Mapped[int] = mapped_column(Integer, default=0)  # 0 | 90
+    qr_token: Mapped[str] = mapped_column(String(40), default="", index=True)  # secret in the table's QR link ("" = none yet)
 
 
 class FloorSection(Base):
@@ -191,6 +193,7 @@ class OrderItem(Base):
     course: Mapped[int] = mapped_column(Integer, default=1)
     seat: Mapped[int] = mapped_column(Integer, default=0)  # 0 = shared / table
     station: Mapped[str] = mapped_column(String(40), default="")  # copied from the menu item when ordered
+    source: Mapped[str] = mapped_column(String(10), default="")  # "guest" = ordered by the guest from the table QR
     kot_id: Mapped[str | None] = mapped_column(ForeignKey("kots.id", ondelete="SET NULL"), nullable=True)
     done: Mapped[bool] = mapped_column(Boolean, default=False)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now)
@@ -545,3 +548,20 @@ class UserLocation(Base):
     tenant_id: Mapped[str] = mapped_column(ForeignKey("tenants.id", ondelete="CASCADE"), index=True)
     role: Mapped[str] = mapped_column(String(20), default="manager")
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now)
+
+
+# ---------- Table QR ordering ----------
+
+class ServiceRequest(Base):
+    """Something a guest asked for from the table QR page: a new order to confirm, a waiter, or the bill."""
+    __tablename__ = "service_requests"
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=uid)
+    tenant_id: Mapped[str] = mapped_column(ForeignKey("tenants.id", ondelete="CASCADE"), index=True)
+    table_id: Mapped[str] = mapped_column(ForeignKey("dining_tables.id", ondelete="CASCADE"), index=True)
+    order_id: Mapped[str | None] = mapped_column(ForeignKey("orders.id", ondelete="SET NULL"), nullable=True)
+    kind: Mapped[str] = mapped_column(String(10))  # order | waiter | bill
+    note: Mapped[str] = mapped_column(String(300), default="")
+    status: Mapped[str] = mapped_column(String(8), default="open", index=True)  # open | done
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now, index=True)
+    done_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    done_by: Mapped[str] = mapped_column(String(120), default="")

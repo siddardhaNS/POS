@@ -24,7 +24,7 @@ def tenant_out(t: Tenant | None) -> dict | None:
         "phone": t.phone, "city": t.city, "address": t.address, "tax_id": t.tax_id, "timezone": t.timezone,
         "tips_enabled": t.tips_enabled, "receipt_footer": t.receipt_footer,
         "auto_print_kot": t.auto_print_kot, "auto_print_receipt": t.auto_print_receipt,
-        "modules": [m for m in (t.modules or []) if m in MODULES],
+        "modules": [m for m in (t.modules or []) if m in MODULES], "qr_auto_send": t.qr_auto_send,
         "trial_ends_at": t.trial_ends_at.isoformat() if t.trial_ends_at else None,
         "brand_id": t.brand_id, "location_name": t.location_name or "",
     }

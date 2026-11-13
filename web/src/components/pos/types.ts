@@ -10,7 +10,7 @@ export interface Modifier { group: string; name: string; price: number }
 export interface Line {
   id: string; menu_item_id: string | null; name: string; unit_price: number; qty: number; note: string;
   modifiers: Modifier[]; comp_reason: string; line_total: number; sent: boolean; done: boolean; paid: boolean;
-  course: number; seat: number; station: string;
+  course: number; seat: number; station: string; source?: string;
 }
 export interface PaymentRow {
   id: string; kind: "payment" | "refund"; method: string; amount: number; tip: number; tendered: number; change: number;

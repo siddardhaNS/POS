@@ -12,7 +12,7 @@ from sqlalchemy import event, text
 from .db import SessionLocal
 from .models import (AuditLog, CashMovement, CashSession, DiningTable, FloorSection, Kot, MenuCategory, MenuItem, ModifierGroup,
                      ModifierOption, Order, OrderItem, Payment, Printer, PrintJob, PurchaseOrder, RecipeLine, StockCount,
-                     StockItem, StockMovement, Supplier, TimeBreak, TimeEntry)
+                     ServiceRequest, StockItem, StockMovement, Supplier, TimeBreak, TimeEntry)
 
 TOPICS: dict[type, tuple[str, ...]] = {
     Order: ("floor", "orders", "online", "kds"),
@@ -20,6 +20,7 @@ TOPICS: dict[type, tuple[str, ...]] = {
     Payment: ("floor", "orders", "cash"),
     Kot: ("kds", "floor"),
     DiningTable: ("floor",),
+    ServiceRequest: ("floor", "requests"),
     FloorSection: ("floor",),
     CashSession: ("cash",),
     CashMovement: ("cash",),
@@ -39,7 +40,7 @@ TOPICS: dict[type, tuple[str, ...]] = {
     TimeEntry: ("timeclock",),
     TimeBreak: ("timeclock",),
 }
-ALL_TOPICS = ("floor", "orders", "online", "kds", "cash", "menu", "audit", "print", "inventory", "timeclock")
+ALL_TOPICS = ("floor", "orders", "online", "kds", "cash", "menu", "audit", "print", "inventory", "timeclock", "requests")
 
 BUMP = text("""
 INSERT INTO live_revs (tenant_id, topic, rev) VALUES (:t, :p, 1)

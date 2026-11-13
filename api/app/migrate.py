@@ -32,6 +32,7 @@ COLUMNS: dict[str, list[tuple[str, str, str | None]]] = {
         ("ot_weekly_hours", "NUMERIC(5,1) NOT NULL DEFAULT 40", None),
         ("brand_id", "VARCHAR(36) NULL REFERENCES brands(id) ON DELETE SET NULL", None),
         ("location_name", "VARCHAR(80) NOT NULL DEFAULT ''", None),
+        ("qr_auto_send", "BOOLEAN NOT NULL DEFAULT FALSE", None),
     ],
     "users": [
         ("hourly_rate", "NUMERIC(10,2) NOT NULL DEFAULT 0", None),
@@ -43,6 +44,7 @@ COLUMNS: dict[str, list[tuple[str, str, str | None]]] = {
         ("x", "INTEGER NOT NULL DEFAULT 0", "UPDATE dining_tables SET x = (sort % 4) * 6 + 2"),
         ("y", "INTEGER NOT NULL DEFAULT 0", "UPDATE dining_tables SET y = (sort / 4) * 6 + 2"),
         ("rotation", "INTEGER NOT NULL DEFAULT 0", None),
+        ("qr_token", "VARCHAR(40) NOT NULL DEFAULT ''", None),
     ],
     "orders": [
         ("customer_phone", "VARCHAR(40) NOT NULL DEFAULT ''", None),
@@ -60,6 +62,7 @@ COLUMNS: dict[str, list[tuple[str, str, str | None]]] = {
         ("comp_reason", "VARCHAR(120) NOT NULL DEFAULT ''", None),
         ("course", "INTEGER NOT NULL DEFAULT 1", None),
         ("seat", "INTEGER NOT NULL DEFAULT 0", None),
+        ("source", "VARCHAR(10) NOT NULL DEFAULT ''", None),
         ("station", "VARCHAR(40) NOT NULL DEFAULT ''",
          "UPDATE order_items oi SET station = mi.station FROM menu_items mi WHERE mi.id = oi.menu_item_id"),
     ],

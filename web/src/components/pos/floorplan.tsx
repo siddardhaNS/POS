@@ -7,6 +7,7 @@ import { Input } from "@/components/ui/input";
 import { api } from "@/lib/api";
 import { cn } from "@/lib/utils";
 import { AREAS, type AreaItem, type AreaKind, LINES, type Layout, type LayoutItem, type LineItem, type LineKind, LayoutLayer, asLayout, boxFits, emptyLayout, isLine, layoutBounds } from "./layout";
+import { QrCodesButton } from "./qr";
 import { Empty, run, usePoll } from "./shared";
 
 /* ---------- Geometry ---------- */
@@ -493,6 +494,7 @@ export function FloorPlanEditor() {
               </button>
             ))}
           </div>
+          <div className="ml-auto"><QrCodesButton /></div>
           {drawing && tool === "room" && (
             <span className="text-sm text-muted-foreground">
               {roomDraft.length < 3 ? `Click the room's corners (${roomDraft.length} so far).` : "Click the first corner again, or press Enter, to finish."}

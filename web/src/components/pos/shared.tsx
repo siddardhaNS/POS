@@ -48,7 +48,7 @@ export const useFmt = (s: Session) => useCallback((v: number) => money(v, s.tena
 
 /* ---------- Live updates ---------- */
 
-export type Topic = "floor" | "orders" | "online" | "kds" | "cash" | "menu" | "audit" | "print" | "inventory" | "timeclock";
+export type Topic = "floor" | "orders" | "online" | "kds" | "cash" | "menu" | "audit" | "print" | "inventory" | "timeclock" | "requests";
 export type Revs = Partial<Record<Topic, number>>;
 export const Live = createContext<Revs>({});
 
