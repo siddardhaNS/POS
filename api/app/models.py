@@ -454,6 +454,11 @@ class Lead(Base):
     website: Mapped[str] = mapped_column(String(300), default="")
     email: Mapped[str] = mapped_column(String(200), default="")
     contact_name: Mapped[str] = mapped_column(String(120), default="")
+    # [{"name", "role", "phone", "whatsapp", "email", "decision_maker"}]
+    contacts: Mapped[list] = mapped_column(JSON, default=list)
+    # Known sales attributes (see routers/leads.DETAILS), e.g. {"current_pos": "Petpooja", "outlets": "2"}
+    details: Mapped[dict] = mapped_column(JSON, default=dict)
+    custom_fields: Mapped[list] = mapped_column(JSON, default=list)  # [{"label", "value"}] for anything else
     rating: Mapped[float | None] = mapped_column(Numeric(3, 1), nullable=True)
     reviews: Mapped[int | None] = mapped_column(Integer, nullable=True)
     opening_hours: Mapped[str] = mapped_column(Text, default="")

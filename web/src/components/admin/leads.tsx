@@ -20,9 +20,10 @@ interface Candidate {
 }
 interface SearchResult { center: { lat: number; lon: number; label: string; city: string }; results: Candidate[]; notes: string[]; counts: { total: number; with_phone: number; new: number } }
 interface Lead extends Omit<Candidate, "distance_m" | "lead_id" | "lead_status" | "customer"> {
-  id: string; contact_name: string; status: string; follow_up_on: string | null; notes: string; created_at: string; last_contacted_at: string | null;
+  id: string; contact_name: string; contacts: Contact[]; details: Record<string, string>; custom_fields: { label: string; value: string }[]; status: string; follow_up_on: string | null; notes: string; created_at: string; last_contacted_at: string | null;
   activities?: { id: string; kind: string; text: string; user: string; created_at: string }[];
 }
+interface Contact { name: string; role: string; phone: string; whatsapp: boolean; email: string; decision_maker: boolean }
 interface LeadList { leads: Lead[]; counts: Record<string, number>; total: number; due: number; cities: string[] }
 interface Sources { osm: boolean; google: boolean; categories: { key: string; label: string }[] }
 
@@ -328,10 +329,9 @@ function LeadDialog({ id, onClose, onChanged }: { id: string; onClose: () => voi
   const [kind, setKind] = useState<"call" | "email" | "visit" | "note">("call");
   const [text, setText] = useState("");
   const [next, setNext] = useState("");
-  const [contact, setContact] = useState({ contact_name: "", phone: "", email: "", website: "" });
 
   useEffect(() => {
-    api<Lead>(`/admin/leads/${id}`).then((x) => { setL(x); setContact({ contact_name: x.contact_name, phone: x.phone, email: x.email, website: x.website }); }).catch((e) => toast.error(e.message));
+    api<Lead>(`/admin/leads/${id}`).then(setL).catch((e) => toast.error(e.message));
   }, [id]);
 
   async function patch(body: Record<string, unknown>, ok?: string) {
@@ -348,7 +348,6 @@ function LeadDialog({ id, onClose, onChanged }: { id: string; onClose: () => voi
     if (!l || !confirm(`Delete the lead for ${l.name}?`)) return;
     try { await api(`/admin/leads/${id}`, { method: "DELETE" }); toast.success("Lead deleted"); onChanged(); onClose(); } catch (e) { toast.error((e as Error).message); }
   }
-  const changed = l && (contact.contact_name !== l.contact_name || contact.phone !== l.phone || contact.email !== l.email || contact.website !== l.website);
   const map = l ? mapUrl(l) : null;
 
   return (
@@ -380,13 +379,7 @@ function LeadDialog({ id, onClose, onChanged }: { id: string; onClose: () => voi
                 </div></div>
             </div>
 
-            <div className="grid gap-3 rounded-xl bg-muted/50 p-3 sm:grid-cols-2">
-              {(["contact_name", "phone", "email", "website"] as const).map((k) => (
-                <Input key={k} value={contact[k]} onChange={(e) => setContact({ ...contact, [k]: e.target.value })}
-                  placeholder={{ contact_name: "Contact person", phone: "Phone", email: "Email", website: "Website" }[k]} className="h-10 bg-card" />
-              ))}
-              {changed && <button onClick={() => patch(contact, "Contact details saved")} className="h-10 rounded-lg bg-foreground text-sm font-semibold text-background sm:col-span-2">Save contact details</button>}
-            </div>
+            <LeadProfile key={l.id} lead={l} onSave={(body) => patch(body, "Saved")} />
 
             <form onSubmit={log} className="grid gap-2 border-t border-border pt-4">
               <div className="flex flex-wrap gap-2">
@@ -416,5 +409,119 @@ function LeadDialog({ id, onClose, onChanged }: { id: string; onClose: () => voi
         )}
       </DialogContent>
     </Dialog>
+  );
+}
+
+/* ---------- Contacts, restaurant details and custom fields ---------- */
+
+const ROLES = ["Owner", "Partner", "Manager", "Head chef", "Accountant", "IT / admin"];
+const digits = (p: string) => p.replace(/[^0-9]/g, "");
+const blankContact = (): Contact => ({ name: "", role: "", phone: "", whatsapp: false, email: "", decision_maker: false });
+
+function LeadProfile({ lead, onSave }: { lead: Lead; onSave: (body: Record<string, unknown>) => Promise<void> }) {
+  const initial = useMemo(() => ({
+    phone: lead.phone, email: lead.email, website: lead.website,
+    contacts: lead.contacts ?? [], details: lead.details ?? {}, custom_fields: lead.custom_fields ?? [],
+  }), [lead]);
+  const [f, setF] = useState(initial);
+  const [fields, setFields] = useState<{ key: string; label: string }[]>([]);
+  const [saving, setSaving] = useState(false);
+  useEffect(() => { api<{ key: string; label: string }[]>("/admin/leads/fields").then(setFields).catch(() => {}); }, []);
+  const dirty = JSON.stringify(f) !== JSON.stringify(initial);
+  const setContact = (i: number, p: Partial<Contact>) => setF((x) => ({
+    ...x, contacts: x.contacts.map((c, k) => (k === i ? { ...c, ...p } : p.decision_maker ? { ...c, decision_maker: false } : c)),
+  }));
+  const setCustom = (i: number, p: Partial<{ label: string; value: string }>) =>
+    setF((x) => ({ ...x, custom_fields: x.custom_fields.map((c, k) => (k === i ? { ...c, ...p } : c)) }));
+  async function save() {
+    setSaving(true);
+    await onSave({ ...f, custom_fields: f.custom_fields.filter((c) => c.label.trim()) });
+    setSaving(false);
+  }
+  const box = "h-9 bg-card";
+  const section = "mb-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground";
+  const addBtn = "flex h-9 w-fit items-center gap-1.5 rounded-lg bg-card px-3 text-sm font-medium ring-1 ring-border";
+  return (
+    <div className="grid gap-4 rounded-xl bg-muted/40 p-3.5">
+      <div>
+        <div className={section}>Restaurant</div>
+        <div className="grid gap-2 sm:grid-cols-3">
+          <Input value={f.phone} onChange={(e) => setF({ ...f, phone: e.target.value })} placeholder="Main phone" type="tel" className={box} />
+          <Input value={f.email} onChange={(e) => setF({ ...f, email: e.target.value })} placeholder="Main email" type="email" className={box} />
+          <Input value={f.website} onChange={(e) => setF({ ...f, website: e.target.value })} placeholder="Website" className={box} />
+        </div>
+      </div>
+
+      <div>
+        <div className={section}>People</div>
+        <div className="grid gap-2">
+          {f.contacts.map((c, i) => (
+            <div key={i} className="grid gap-2 rounded-lg bg-card p-2.5 ring-1 ring-border">
+              <div className="grid gap-2 sm:grid-cols-[1fr_9rem]">
+                <Input value={c.name} onChange={(e) => setContact(i, { name: e.target.value })} placeholder="Name" className="h-9" />
+                <Input value={c.role} onChange={(e) => setContact(i, { role: e.target.value })} placeholder="Role" list="lead-roles" className="h-9" />
+              </div>
+              <div className="grid gap-2 sm:grid-cols-2">
+                <Input value={c.phone} onChange={(e) => setContact(i, { phone: e.target.value })} placeholder="Phone" type="tel" className="h-9" />
+                <Input value={c.email} onChange={(e) => setContact(i, { email: e.target.value })} placeholder="Email" type="email" className="h-9" />
+              </div>
+              <div className="flex flex-wrap items-center gap-x-4 gap-y-2 text-sm">
+                <label className="flex items-center gap-1.5"><input type="checkbox" checked={c.whatsapp} onChange={(e) => setContact(i, { whatsapp: e.target.checked })} className="size-4 accent-foreground" />On WhatsApp</label>
+                <label className="flex items-center gap-1.5"><input type="radio" name="decision-maker" checked={c.decision_maker} onChange={() => setContact(i, { decision_maker: true })} className="size-4 accent-foreground" />Decision maker</label>
+                <span className="ml-auto flex gap-1.5">
+                  {c.phone && <a href={`tel:${c.phone.replace(/\s/g, "")}`} className="flex h-8 items-center gap-1 rounded-lg bg-muted px-2.5 text-xs font-medium"><Phone className="size-3.5" />Call</a>}
+                  {c.phone && c.whatsapp && <a href={`https://wa.me/${digits(c.phone)}`} target="_blank" rel="noreferrer" className="flex h-8 items-center rounded-lg bg-muted px-2.5 text-xs font-medium">WhatsApp</a>}
+                  {c.email && <a href={`mailto:${c.email}`} className="flex h-8 items-center rounded-lg bg-muted px-2.5 text-xs font-medium">Email</a>}
+                  <button type="button" onClick={() => setF((x) => ({ ...x, contacts: x.contacts.filter((_, k) => k !== i) }))} title="Remove person"
+                    className="grid size-8 place-items-center rounded-lg text-muted-foreground hover:bg-muted"><Trash2 className="size-3.5" /></button>
+                </span>
+              </div>
+            </div>
+          ))}
+          <datalist id="lead-roles">{ROLES.map((r) => <option key={r} value={r} />)}</datalist>
+          <button type="button" onClick={() => setF((x) => ({ ...x, contacts: [...x.contacts, { ...blankContact(), decision_maker: !x.contacts.length }] }))} className={addBtn}>
+            <Plus className="size-4" />Add person
+          </button>
+        </div>
+      </div>
+
+      <div>
+        <div className={section}>Details</div>
+        <div className="grid gap-2 sm:grid-cols-2">
+          {fields.map((d) => (
+            <label key={d.key} className="grid grid-cols-[8.5rem_1fr] items-center gap-2 text-sm">
+              <span className="text-muted-foreground">{d.label}</span>
+              <Input value={f.details[d.key] ?? ""} onChange={(e) => setF((x) => ({ ...x, details: { ...x.details, [d.key]: e.target.value } }))} className={box} />
+            </label>
+          ))}
+        </div>
+      </div>
+
+      <div>
+        <div className={section}>Other details</div>
+        <div className="grid gap-2">
+          {f.custom_fields.map((c, i) => (
+            <div key={i} className="grid grid-cols-[8.5rem_1fr_auto] items-center gap-2">
+              <Input value={c.label} onChange={(e) => setCustom(i, { label: e.target.value })} placeholder="Label" className={box} />
+              <Input value={c.value} onChange={(e) => setCustom(i, { value: e.target.value })} placeholder="Value" className={box} />
+              <button type="button" onClick={() => setF((x) => ({ ...x, custom_fields: x.custom_fields.filter((_, k) => k !== i) }))}
+                className="grid size-9 place-items-center rounded-lg text-muted-foreground hover:bg-muted"><Trash2 className="size-3.5" /></button>
+            </div>
+          ))}
+          <button type="button" onClick={() => setF((x) => ({ ...x, custom_fields: [...x.custom_fields, { label: "", value: "" }] }))} className={addBtn}>
+            <Plus className="size-4" />Add a field
+          </button>
+        </div>
+      </div>
+
+      {dirty && (
+        <div className="sticky bottom-0 flex gap-2 rounded-lg bg-card p-2 ring-1 ring-border">
+          <button type="button" onClick={() => setF(initial)} className="h-10 rounded-lg px-4 text-sm text-muted-foreground hover:bg-muted">Undo changes</button>
+          <button type="button" disabled={saving} onClick={save} className="ml-auto h-10 rounded-lg bg-foreground px-5 text-sm font-semibold text-background disabled:opacity-40">
+            {saving ? "Saving…" : "Save details"}
+          </button>
+        </div>
+      )}
+    </div>
   );
 }

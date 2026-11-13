@@ -7,7 +7,7 @@ import httpx
 from fastapi import APIRouter, Depends, HTTPException
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
-from sqlalchemy import func, or_, select
+from sqlalchemy import Text, cast, func, or_, select
 from sqlalchemy.orm import Session, selectinload
 
 from .. import leadsources as src
@@ -20,6 +20,13 @@ router = APIRouter(prefix="/admin/leads", tags=["leads"])
 STATUSES = ("new", "contacted", "interested", "demo", "won", "lost", "not_fit")
 STATUS_LABEL = {"new": "New", "contacted": "Contacted", "interested": "Interested", "demo": "Demo booked", "won": "Won",
                 "lost": "Lost", "not_fit": "Not a fit"}
+# Sales attributes captured per lead (key -> label); stored in Lead.details.
+DETAILS: dict[str, str] = {
+    "alt_phone": "Alternate phone", "whatsapp": "WhatsApp", "instagram": "Instagram", "facebook": "Facebook",
+    "current_pos": "Current POS", "outlets": "Outlets", "seats": "Seats", "service_style": "Service style",
+    "delivery_apps": "Delivery apps", "daily_orders": "Orders per day", "avg_check": "Average check",
+    "best_time": "Best time to call", "language": "Language", "referred_by": "Referred by", "budget": "Budget / plan",
+}
 FIELDS = ("name", "category", "cuisine", "address", "area", "city", "postcode", "phone", "website", "email", "rating",
           "reviews", "opening_hours")
 
@@ -32,7 +39,8 @@ def lead_out(x: Lead, full: bool = False) -> dict:
     out = {"id": x.id, "osm_id": x.osm_id, "google_place_id": x.google_place_id, "name": x.name, "category": x.category,
            "cuisine": x.cuisine, "address": x.address, "area": x.area, "city": x.city, "postcode": x.postcode,
            "lat": fnum(x.lat), "lon": fnum(x.lon), "phone": x.phone, "website": x.website, "email": x.email,
-           "contact_name": x.contact_name, "rating": fnum(x.rating), "reviews": x.reviews, "opening_hours": x.opening_hours,
+           "contact_name": x.contact_name, "contacts": x.contacts or [], "details": x.details or {},
+           "custom_fields": x.custom_fields or [], "rating": fnum(x.rating), "reviews": x.reviews, "opening_hours": x.opening_hours,
            "sources": x.sources or [], "status": x.status, "follow_up_on": x.follow_up_on.isoformat() if x.follow_up_on else None,
            "notes": x.notes, "tenant_id": x.tenant_id, "created_at": x.created_at.isoformat(),
            "last_contacted_at": x.last_contacted_at.isoformat() if x.last_contacted_at else None}
@@ -43,6 +51,12 @@ def lead_out(x: Lead, full: bool = False) -> dict:
 
 
 # ---------- Finding ----------
+
+@router.get("/fields")
+def fields(_: Ctx = Depends(platform_admin)):
+    """The sales attributes a lead can capture, in display order."""
+    return [{"key": k, "label": v} for k, v in DETAILS.items()]
+
 
 @router.get("/sources")
 def sources(_: Ctx = Depends(platform_admin)):
@@ -165,7 +179,9 @@ def list_leads(status: str = "", q: str = "", city: str = "", has_phone: bool = 
     if q:
         like = f"%{q.lower()}%"
         stmt = stmt.where(or_(func.lower(Lead.name).like(like), func.lower(Lead.area).like(like), func.lower(Lead.city).like(like),
-                              func.lower(Lead.cuisine).like(like), Lead.phone.like(like)))
+                              func.lower(Lead.cuisine).like(like), Lead.phone.like(like), func.lower(Lead.email).like(like),
+                              func.lower(Lead.contact_name).like(like), func.lower(cast(Lead.contacts, Text)).like(like),
+                              func.lower(cast(Lead.details, Text)).like(like), func.lower(cast(Lead.custom_fields, Text)).like(like)))
     rows = db.scalars(stmt.order_by(Lead.follow_up_on.asc().nulls_last(), Lead.created_at.desc()).limit(1000)).all()
     counts = dict(db.execute(select(Lead.status, func.count()).group_by(Lead.status)).all())
     cities = [c for c, in db.execute(select(Lead.city).where(Lead.city != "").group_by(Lead.city).order_by(func.count().desc()).limit(30))]
@@ -188,6 +204,20 @@ def lead(lid: str, _: Ctx = Depends(platform_admin), db: Session = Depends(get_d
     return lead_out(get_lead(db, lid), full=True)
 
 
+class ContactIn(BaseModel):
+    name: str = Field(default="", max_length=120)
+    role: str = Field(default="", max_length=60)
+    phone: str = Field(default="", max_length=60)
+    whatsapp: bool = False
+    email: str = Field(default="", max_length=200)
+    decision_maker: bool = False
+
+
+class CustomFieldIn(BaseModel):
+    label: str = Field(min_length=1, max_length=60)
+    value: str = Field(default="", max_length=500)
+
+
 class LeadPatch(BaseModel):
     status: str | None = Field(default=None, pattern=r"^(new|contacted|interested|demo|won|lost|not_fit)$")
     follow_up_on: date | None = None
@@ -197,6 +227,14 @@ class LeadPatch(BaseModel):
     phone: str | None = Field(default=None, max_length=60)
     email: str | None = Field(default=None, max_length=200)
     website: str | None = Field(default=None, max_length=300)
+    name: str | None = Field(default=None, min_length=1, max_length=200)
+    area: str | None = Field(default=None, max_length=120)
+    city: str | None = Field(default=None, max_length=120)
+    address: str | None = Field(default=None, max_length=2000)
+    cuisine: str | None = Field(default=None, max_length=200)
+    contacts: list[ContactIn] | None = Field(default=None, max_length=20)
+    details: dict[str, str] | None = None
+    custom_fields: list[CustomFieldIn] | None = Field(default=None, max_length=40)
 
 
 @router.patch("/{lid}")
@@ -212,10 +250,23 @@ def edit_lead(lid: str, body: LeadPatch, ctx: Ctx = Depends(platform_admin), db:
         x.follow_up_on = None
     elif body.follow_up_on:
         x.follow_up_on = body.follow_up_on
-    for k in ("notes", "contact_name", "phone", "email", "website"):
+    for k in ("notes", "contact_name", "phone", "email", "website", "name", "area", "city", "address", "cuisine"):
         v = getattr(body, k)
         if v is not None:
             setattr(x, k, v.strip())
+    if body.contacts is not None:
+        x.contacts = [c.model_dump() | {k: c.model_dump()[k].strip() for k in ("name", "role", "phone", "email")}
+                      for c in body.contacts if c.name.strip() or c.phone.strip() or c.email.strip()]
+        lead_contact = next((c for c in x.contacts if c["decision_maker"]), x.contacts[0] if x.contacts else None)
+        if lead_contact and lead_contact["name"]:
+            x.contact_name = lead_contact["name"]
+    if body.details is not None:
+        unknown = set(body.details) - set(DETAILS)
+        if unknown:
+            raise HTTPException(422, f"Unknown detail: {', '.join(sorted(unknown))}")
+        x.details = {k: str(v).strip()[:300] for k, v in body.details.items() if str(v).strip()}
+    if body.custom_fields is not None:
+        x.custom_fields = [{"label": f.label.strip(), "value": f.value.strip()} for f in body.custom_fields if f.label.strip()]
     x.updated_at = now()
     db.commit()
     return lead_out(get_lead(db, lid), full=True)
@@ -256,6 +307,9 @@ class ManualIn(BaseModel):
 @router.post("", status_code=201)
 def add_lead(body: ManualIn, ctx: Ctx = Depends(platform_admin), db: Session = Depends(get_db)):
     x = Lead(**body.model_dump(), sources=["manual"])
+    if body.contact_name.strip() or body.phone.strip() or body.email.strip():
+        x.contacts = [{"name": body.contact_name.strip(), "role": "", "phone": body.phone.strip(), "whatsapp": False,
+                       "email": body.email.strip(), "decision_maker": True}]
     x.activities.append(LeadActivity(kind="note", text="Added by hand", user_name=ctx.user.name))
     db.add(x)
     db.commit()
@@ -275,12 +329,13 @@ def export(status: str = "", _: Ctx = Depends(platform_admin), db: Session = Dep
     if status:
         stmt = stmt.where(Lead.status == status)
     cols = ["name", "status", "category", "cuisine", "area", "city", "address", "phone", "email", "website", "contact_name",
-            "rating", "reviews", "follow_up_on", "notes", "sources", "created_at"]
+            "contacts", *DETAILS, "other_details", "rating", "reviews", "follow_up_on", "notes", "sources", "created_at"]
+    titles = {**{c: c.replace("_", " ").capitalize() for c in cols}, **DETAILS}
 
     def rows():
         buf = io.StringIO()
         w = csv.writer(buf)
-        w.writerow([c.replace("_", " ").capitalize() for c in cols])
+        w.writerow([titles[c] for c in cols])
         yield "﻿" + buf.getvalue()
         for x in db.scalars(stmt):
             buf.seek(0)
@@ -288,6 +343,10 @@ def export(status: str = "", _: Ctx = Depends(platform_admin), db: Session = Dep
             o = lead_out(x)
             o["status"] = STATUS_LABEL.get(o["status"], o["status"])
             o["sources"] = ", ".join(o["sources"])
+            o["contacts"] = "; ".join(" ".join(filter(None, [c.get("name"), f"({c['role']})" if c.get("role") else "", c.get("phone"),
+                                                             c.get("email")])) for c in o["contacts"])
+            o.update(o["details"])
+            o["other_details"] = "; ".join(f"{f['label']}: {f['value']}" for f in o["custom_fields"])
             w.writerow(["" if o.get(c) is None else o.get(c) for c in cols])
             yield buf.getvalue()
 

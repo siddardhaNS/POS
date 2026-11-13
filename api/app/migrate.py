@@ -54,6 +54,11 @@ COLUMNS: dict[str, list[tuple[str, str, str | None]]] = {
         ("station", "VARCHAR(40) NOT NULL DEFAULT ''",
          "UPDATE order_items oi SET station = mi.station FROM menu_items mi WHERE mi.id = oi.menu_item_id"),
     ],
+    "leads": [
+        ("contacts", "JSON NOT NULL DEFAULT '[]'", None),
+        ("details", "JSON NOT NULL DEFAULT '{}'", None),
+        ("custom_fields", "JSON NOT NULL DEFAULT '[]'", None),
+    ],
     "kots": [
         ("bumped_at", "TIMESTAMPTZ NULL", "UPDATE kots SET bumped_at = created_at WHERE bumped"),
         ("course", "INTEGER NOT NULL DEFAULT 0", None),
