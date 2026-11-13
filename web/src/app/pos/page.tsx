@@ -2,7 +2,7 @@
 
 import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { Activity, Armchair, BarChart3, Bike, ChefHat, History, LayoutGrid, Lock, Menu as MenuIcon, ReceiptText, Settings, UtensilsCrossed, Users, Wallet, X } from "lucide-react";
+import { Activity, Armchair, BarChart3, Bike, Boxes, ChefHat, History, LayoutGrid, Lock, Menu as MenuIcon, ReceiptText, Settings, UtensilsCrossed, Users, Wallet, X } from "lucide-react";
 import { MenuAdmin, Staff } from "@/components/pos/backoffice";
 import { ReportsScreen } from "@/components/pos/reports";
 import { CashScreen } from "@/components/pos/cash";
@@ -10,6 +10,7 @@ import { OrdersScreen } from "@/components/pos/history";
 import { SettingsScreen } from "@/components/pos/settings";
 import { ActivityScreen } from "@/components/pos/activity";
 import { FloorPlanEditor } from "@/components/pos/floorplan";
+import { InventoryScreen } from "@/components/pos/inventory";
 import { Floor } from "@/components/pos/floor";
 import { Kitchen, Online } from "@/components/pos/kitchen";
 import { LockScreen } from "@/components/pos/lock-screen";
@@ -29,6 +30,7 @@ const MODULES: { k: Screen; l: string; perm: string; module?: string; group: "SE
   { k: "cash", l: "Cash drawer", perm: "cash", group: "SERVICE", icon: Wallet },
   { k: "dash", l: "Reports", perm: "reports", group: "MANAGE", icon: BarChart3 },
   { k: "menu", l: "Menu", perm: "menu", group: "MANAGE", icon: UtensilsCrossed },
+  { k: "inventory", l: "Inventory", perm: "inventory_waste", module: "inventory", group: "MANAGE", icon: Boxes },
   { k: "staff", l: "Staff & roles", perm: "staff", group: "MANAGE", icon: Users },
   { k: "audit", l: "Activity log", perm: "reports", group: "MANAGE", icon: Activity },
   { k: "floorplan", l: "Floor plan", perm: "tables", group: "MANAGE", icon: Armchair },
@@ -216,6 +218,7 @@ function ShellInner({ s, screen, go, orderId, payNow, allowed, navOpen, setNavOp
             {screen === "kds" && <Kitchen />}
             {screen === "dash" && <ReportsScreen />}
             {screen === "menu" && <MenuAdmin />}
+            {screen === "inventory" && <InventoryScreen />}
             {screen === "staff" && <Staff />}
           </main>
         </div>

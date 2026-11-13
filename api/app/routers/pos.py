@@ -10,9 +10,10 @@ from sqlalchemy import func, or_, select, update
 from sqlalchemy.orm import Session, selectinload
 
 from ..db import get_db
-from ..deps import PERMISSIONS, Ctx, needs, require
+from ..deps import PERMISSIONS, Ctx, has_module, needs, require
 from ..live import ALL_TOPICS, audit
 from ..models import DiningTable, Kot, LiveRev, MenuItem, ModifierGroup, Order, OrderItem, Payment, Tenant, now
+from ..stock import deduct_for_order
 
 router = APIRouter(tags=["pos"])
 CENT = Decimal("0.01")
@@ -479,6 +480,8 @@ def take_payment(db: Session, ctx: Ctx, o: Order, body: PaymentIn) -> dict:
         raise HTTPException(409, "Nothing to pay for")
     if balance(o) <= CENT / 2:  # fully comped or discounted: nothing to collect, just close it
         o.status, o.closed_at, o.payment_method = "paid", now(), o.payment_method or "comp"
+        if has_module(ctx.tenant, "inventory"):
+            deduct_for_order(db, o, ctx.user.id)
         db.commit()
         return {**order_out(load_order(db, ctx, o.id)), "change": 0}
     amount = q(Decimal(str(body.amount)))
@@ -500,6 +503,8 @@ def take_payment(db: Session, ctx: Ctx, o: Order, body: PaymentIn) -> dict:
         methods = {p.method for p in o.payments if p.kind == "payment"}
         o.status, o.closed_at = "paid", now()
         o.payment_method = methods.pop() if len(methods) == 1 else "split"
+        if has_module(ctx.tenant, "inventory"):
+            deduct_for_order(db, o, ctx.user.id)
     db.commit()
     out = order_out(load_order(db, ctx, o.id))
     out["change"] = money(change)

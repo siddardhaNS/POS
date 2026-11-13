@@ -1,9 +1,9 @@
 """Multi-tenant data model: every business row carries tenant_id (shared schema, row-level scoping)."""
 import uuid
-from datetime import datetime, timezone
+from datetime import date, datetime, timezone
 from decimal import Decimal
 
-from sqlalchemy import JSON, BigInteger, Boolean, DateTime, ForeignKey, Index, Integer, Numeric, String, Text, UniqueConstraint
+from sqlalchemy import JSON, BigInteger, Boolean, Date, DateTime, ForeignKey, Index, Integer, Numeric, String, Text, UniqueConstraint
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from .db import Base
@@ -47,6 +47,7 @@ class Tenant(Base):
     tips_enabled: Mapped[bool] = mapped_column(Boolean, default=False)
     receipt_footer: Mapped[str] = mapped_column(Text, default="Thank you! See you again soon.")
     modules: Mapped[list] = mapped_column(JSON, default=list)  # optional modules turned on (see deps.MODULES)
+    inventory_auto_86: Mapped[bool] = mapped_column(Boolean, default=False)  # sold out when an ingredient runs out
     auto_print_kot: Mapped[bool] = mapped_column(Boolean, default=False)
     auto_print_receipt: Mapped[bool] = mapped_column(Boolean, default=False)
 
@@ -316,3 +317,117 @@ class PrintJob(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now)
     claimed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     printed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+
+
+# ---------- Inventory ----------
+# Quantities are stored in a base unit (g, ml or pc); each stock item has a display unit (kg, l, dozen...).
+# Costs are stored per base unit. on_hand only ever changes through a StockMovement.
+class Supplier(Base):
+    __tablename__ = "suppliers"
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=uid)
+    tenant_id: Mapped[str] = mapped_column(ForeignKey("tenants.id", ondelete="CASCADE"), index=True)
+    name: Mapped[str] = mapped_column(String(160))
+    phone: Mapped[str] = mapped_column(String(40), default="")
+    email: Mapped[str] = mapped_column(String(200), default="")
+    notes: Mapped[str] = mapped_column(Text, default="")
+    active: Mapped[bool] = mapped_column(Boolean, default=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now)
+
+
+class StockItem(Base):
+    """An ingredient or packaged good the restaurant keeps on hand."""
+    __tablename__ = "stock_items"
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=uid)
+    tenant_id: Mapped[str] = mapped_column(ForeignKey("tenants.id", ondelete="CASCADE"), index=True)
+    name: Mapped[str] = mapped_column(String(160))
+    category: Mapped[str] = mapped_column(String(80), default="")
+    unit: Mapped[str] = mapped_column(String(10), default="kg")  # display unit; the base unit follows from it
+    on_hand: Mapped[Decimal] = mapped_column(Numeric(18, 4), default=Decimal("0"))  # base units
+    par_level: Mapped[Decimal] = mapped_column(Numeric(18, 4), default=Decimal("0"))  # base units; reorder at/below
+    avg_cost: Mapped[Decimal] = mapped_column(Numeric(18, 6), default=Decimal("0"))  # per base unit, moving average
+    supplier_id: Mapped[str | None] = mapped_column(ForeignKey("suppliers.id", ondelete="SET NULL"), nullable=True)
+    active: Mapped[bool] = mapped_column(Boolean, default=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now)
+
+
+class RecipeLine(Base):
+    """How much of a stock item one serving uses: of a menu item, or of one of its modifier options (Extra cheese).
+
+    Option lines are keyed by group + option name, the same way order lines record modifiers, so they survive
+    the menu editor recreating option rows."""
+    __tablename__ = "recipe_lines"
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=uid)
+    tenant_id: Mapped[str] = mapped_column(ForeignKey("tenants.id", ondelete="CASCADE"), index=True)
+    menu_item_id: Mapped[str] = mapped_column(ForeignKey("menu_items.id", ondelete="CASCADE"), index=True)
+    modifier_group: Mapped[str] = mapped_column(String(80), default="")  # "" = the item's base recipe
+    modifier_option: Mapped[str] = mapped_column(String(80), default="")
+    stock_item_id: Mapped[str] = mapped_column(ForeignKey("stock_items.id", ondelete="CASCADE"), index=True)
+    qty: Mapped[Decimal] = mapped_column(Numeric(18, 4))  # base units per serving
+    unit: Mapped[str] = mapped_column(String(10), default="g")  # unit the line was entered in (for display)
+
+
+class StockMovement(Base):
+    """Ledger of every stock change. qty is signed, in base units."""
+    __tablename__ = "stock_movements"
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=uid)
+    tenant_id: Mapped[str] = mapped_column(ForeignKey("tenants.id", ondelete="CASCADE"), index=True)
+    stock_item_id: Mapped[str] = mapped_column(ForeignKey("stock_items.id", ondelete="CASCADE"), index=True)
+    # received | sale | waste | adjust | count | transfer_in | transfer_out
+    kind: Mapped[str] = mapped_column(String(16), index=True)
+    qty: Mapped[Decimal] = mapped_column(Numeric(18, 4))
+    unit_cost: Mapped[Decimal] = mapped_column(Numeric(18, 6), default=Decimal("0"))  # per base unit
+    reason: Mapped[str] = mapped_column(String(200), default="")
+    order_id: Mapped[str | None] = mapped_column(ForeignKey("orders.id", ondelete="SET NULL"), nullable=True, index=True)
+    ref_id: Mapped[str | None] = mapped_column(String(36), nullable=True, index=True)  # purchase order or stock count
+    user_id: Mapped[str | None] = mapped_column(ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now, index=True)
+
+
+class PurchaseOrder(Base):
+    __tablename__ = "purchase_orders"
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=uid)
+    tenant_id: Mapped[str] = mapped_column(ForeignKey("tenants.id", ondelete="CASCADE"), index=True)
+    number: Mapped[int] = mapped_column(Integer)
+    supplier_id: Mapped[str | None] = mapped_column(ForeignKey("suppliers.id", ondelete="SET NULL"), nullable=True)
+    status: Mapped[str] = mapped_column(String(12), default="draft", index=True)  # draft | sent | received | cancelled
+    expected_on: Mapped[date | None] = mapped_column(Date, nullable=True)
+    note: Mapped[str] = mapped_column(Text, default="")
+    created_by: Mapped[str | None] = mapped_column(ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now)
+    sent_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    received_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    lines: Mapped[list["PurchaseOrderLine"]] = relationship(cascade="all, delete-orphan", order_by="PurchaseOrderLine.sort")
+
+
+class PurchaseOrderLine(Base):
+    __tablename__ = "purchase_order_lines"
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=uid)
+    tenant_id: Mapped[str] = mapped_column(ForeignKey("tenants.id", ondelete="CASCADE"), index=True)
+    po_id: Mapped[str] = mapped_column(ForeignKey("purchase_orders.id", ondelete="CASCADE"), index=True)
+    stock_item_id: Mapped[str] = mapped_column(ForeignKey("stock_items.id", ondelete="CASCADE"))
+    qty: Mapped[Decimal] = mapped_column(Numeric(18, 4))  # base units ordered
+    unit_cost: Mapped[Decimal] = mapped_column(Numeric(18, 6), default=Decimal("0"))  # per base unit
+    received_qty: Mapped[Decimal] = mapped_column(Numeric(18, 4), default=Decimal("0"))
+    sort: Mapped[int] = mapped_column(Integer, default=0)
+
+
+class StockCount(Base):
+    """A submitted stock take: expected vs counted per item, kept for the variance report."""
+    __tablename__ = "stock_counts"
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=uid)
+    tenant_id: Mapped[str] = mapped_column(ForeignKey("tenants.id", ondelete="CASCADE"), index=True)
+    note: Mapped[str] = mapped_column(String(200), default="")
+    # [{"stock_item_id", "name", "unit", "expected", "counted", "variance", "value"}] in display units
+    lines: Mapped[list] = mapped_column(JSON, default=list)
+    variance_value: Mapped[Decimal] = mapped_column(Numeric(14, 2), default=Decimal("0"))
+    user_id: Mapped[str | None] = mapped_column(ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
+    user_name: Mapped[str] = mapped_column(String(120), default="")
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now, index=True)
+
+
+class InventoryAuto86(Base):
+    """Menu items inventory marked unavailable on its own, so restocking only brings back what it took off."""
+    __tablename__ = "inventory_auto86"
+    tenant_id: Mapped[str] = mapped_column(ForeignKey("tenants.id", ondelete="CASCADE"), primary_key=True)
+    menu_item_id: Mapped[str] = mapped_column(ForeignKey("menu_items.id", ondelete="CASCADE"), primary_key=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now)

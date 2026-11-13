@@ -25,6 +25,7 @@ COLUMNS: dict[str, list[tuple[str, str, str | None]]] = {
         ("modules", "JSON NOT NULL DEFAULT '[]'",
          """UPDATE tenants SET modules = '["online", "reports_plus", "printing", "menu_scan"]'
             WHERE status IN ('trial', 'active', 'suspended')"""),
+        ("inventory_auto_86", "BOOLEAN NOT NULL DEFAULT FALSE", None),
     ],
     "dining_tables": [
         ("section", "VARCHAR(40) NOT NULL DEFAULT 'Main'", None),
