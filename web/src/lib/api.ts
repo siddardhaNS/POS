@@ -25,6 +25,9 @@ export interface Tenant {
   auto_print_receipt?: boolean;
   /** Optional modules turned on for this restaurant by Tiffin (online, reports_plus, printing, menu_scan). */
   modules?: string[];
+  /** Multi-location: the business this outlet belongs to, and the outlet name (e.g. "Downtown"). */
+  brand_id?: string | null;
+  location_name?: string;
 }
 
 export interface SessionUser {

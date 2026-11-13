@@ -2,7 +2,7 @@
 
 import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { Activity, Armchair, BarChart3, Bike, Boxes, Clock, ChefHat, History, LayoutGrid, Lock, Menu as MenuIcon, ReceiptText, Settings, UtensilsCrossed, Users, Wallet, X } from "lucide-react";
+import { Activity, Armchair, BarChart3, Bike, Boxes, Clock, MapPin, ChefHat, History, LayoutGrid, Lock, Menu as MenuIcon, ReceiptText, Settings, UtensilsCrossed, Users, Wallet, X } from "lucide-react";
 import { MenuAdmin, Staff } from "@/components/pos/backoffice";
 import { ReportsScreen } from "@/components/pos/reports";
 import { CashScreen } from "@/components/pos/cash";
@@ -12,6 +12,7 @@ import { ActivityScreen } from "@/components/pos/activity";
 import { FloorPlanEditor } from "@/components/pos/floorplan";
 import { InventoryScreen } from "@/components/pos/inventory";
 import { TimesheetsScreen } from "@/components/pos/timesheets";
+import { LocationSwitcher, LocationsScreen } from "@/components/pos/locations";
 import { Floor } from "@/components/pos/floor";
 import { Kitchen, Online } from "@/components/pos/kitchen";
 import { LockScreen } from "@/components/pos/lock-screen";
@@ -33,6 +34,7 @@ const MODULES: { k: Screen; l: string; perm: string; module?: string; group: "SE
   { k: "menu", l: "Menu", perm: "menu", group: "MANAGE", icon: UtensilsCrossed },
   { k: "inventory", l: "Inventory", perm: "inventory_waste", module: "inventory", group: "MANAGE", icon: Boxes },
   { k: "staff", l: "Staff & roles", perm: "staff", group: "MANAGE", icon: Users },
+  { k: "locations", l: "Locations", perm: "locations", module: "locations", group: "MANAGE", icon: MapPin },
   { k: "timesheets", l: "Timesheets", perm: "timesheets", module: "timeclock", group: "MANAGE", icon: Clock },
   { k: "audit", l: "Activity log", perm: "reports", group: "MANAGE", icon: Activity },
   { k: "floorplan", l: "Floor plan", perm: "tables", group: "MANAGE", icon: Armchair },
@@ -156,9 +158,11 @@ function ShellInner({ s, screen, go, orderId, payNow, allowed, navOpen, setNavOp
         <span className="grid size-[34px] place-items-center rounded-[10px] bg-saffron font-bold text-[#1d1c1a]">t</span>
         <div className="min-w-0">
           <div className="truncate font-semibold">{s.tenant?.name}</div>
+          {s.tenant?.location_name && <div className="truncate text-[12px] text-white/70">{s.tenant.location_name}</div>}
           <div className="text-[11.5px] text-white/45">{s.tenant?.market === "US" ? "USD · $" : "INR · ₹"}</div>
         </div>
       </div>
+      <LocationSwitcher enabled={hasModule(s.tenant, "locations") || !!s.tenant?.brand_id} />
       {(["SERVICE", "MANAGE"] as const).map((g) => {
         const items = allowed.filter((m) => m.group === g);
         if (!items.length) return null;
@@ -229,6 +233,7 @@ function ShellInner({ s, screen, go, orderId, payNow, allowed, navOpen, setNavOp
             {screen === "inventory" && <InventoryScreen />}
             {screen === "staff" && <Staff />}
             {screen === "timesheets" && <TimesheetsScreen />}
+            {screen === "locations" && <LocationsScreen />}
           </main>
         </div>
       </div>

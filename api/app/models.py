@@ -47,6 +47,9 @@ class Tenant(Base):
     tips_enabled: Mapped[bool] = mapped_column(Boolean, default=False)
     receipt_footer: Mapped[str] = mapped_column(Text, default="Thank you! See you again soon.")
     modules: Mapped[list] = mapped_column(JSON, default=list)  # optional modules turned on (see deps.MODULES)
+    # Multi-location: the business this outlet belongs to (null = single location) and the outlet's own name
+    brand_id: Mapped[str | None] = mapped_column(ForeignKey("brands.id", ondelete="SET NULL"), nullable=True)
+    location_name: Mapped[str] = mapped_column(String(80), default="")
     inventory_auto_86: Mapped[bool] = mapped_column(Boolean, default=False)  # sold out when an ingredient runs out
     # Time clock: staff must clock in before using the POS; overtime thresholds in hours (0 = none)
     require_clock_in: Mapped[bool] = mapped_column(Boolean, default=False)
@@ -520,3 +523,25 @@ class TimeBreak(Base):
     start: Mapped[datetime] = mapped_column(DateTime(timezone=True))
     end: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     paid: Mapped[bool] = mapped_column(Boolean, default=False)
+
+class Brand(Base):
+    """A restaurant business with several locations. Each location is its own Tenant (tenants.brand_id).
+
+    Null brand_id means a single-location restaurant; the brand is created when a second location is added.
+    """
+    __tablename__ = "brands"
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=uid)
+    name: Mapped[str] = mapped_column(String(160))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now)
+
+
+class UserLocation(Base):
+    """Grants a user access to a location other than their home tenant (users.tenant_id). Owners reach every
+    location of their brand without a row here; managers need one per extra location."""
+    __tablename__ = "user_locations"
+    __table_args__ = (UniqueConstraint("user_id", "tenant_id"),)
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=uid)
+    user_id: Mapped[str] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), index=True)
+    tenant_id: Mapped[str] = mapped_column(ForeignKey("tenants.id", ondelete="CASCADE"), index=True)
+    role: Mapped[str] = mapped_column(String(20), default="manager")
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now)

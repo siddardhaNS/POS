@@ -18,6 +18,7 @@ interface TenantRow {
   id: string; name: string; slug: string; market: "IN" | "US"; status: string;
   contact_name: string; email: string; phone: string; city: string; cuisine: string;
   outlets: number; service_style: string; message: string; review_note: string; users: number; modules: string[];
+  location_name?: string; brand?: string | null; locations?: number;
   created_at: string; reviewed_at: string | null; trial_ends_at: string | null;
 }
 interface ModuleDef { key: string; label: string; description: string }
@@ -236,7 +237,7 @@ export default function AdminPage() {
               className="grid w-full grid-cols-[1fr_auto] gap-x-4 gap-y-1 border-b border-border/60 px-5 py-4 text-left transition last:border-0 hover:bg-muted/50 md:grid-cols-[2fr_1.2fr_0.8fr_1fr_0.9fr] md:items-center">
               <div className="min-w-0">
                 <div className="truncate font-medium">{t.name}</div>
-                <div className="truncate text-xs text-muted-foreground">{t.city}{t.cuisine && ` · ${t.cuisine}`} · {t.outlets} outlet{t.outlets > 1 ? "s" : ""}</div>
+                <div className="truncate text-xs text-muted-foreground">{t.location_name ? `${t.location_name} · ` : ""}{t.city}{t.cuisine && ` · ${t.cuisine}`} · {(t.locations ?? 1) > 1 ? `${t.locations} locations on Tiffin` : `${t.outlets} outlet${t.outlets > 1 ? "s" : ""}`}</div>
               </div>
               <div className="hidden min-w-0 md:block">
                 <div className="truncate text-sm">{t.contact_name}</div>

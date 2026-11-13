@@ -7,7 +7,7 @@ from sqlalchemy.orm import Session
 
 from ..db import get_db
 from ..live import audit
-from ..deps import LIVE_STATUSES, MODULES, PERMISSIONS, Ctx, current_user, tenant_user
+from ..deps import LIVE_STATUSES, MODULES, PERMISSIONS, Ctx, current_user, has_location_access, tenant_user
 from ..models import Tenant, User
 from ..security import create_token, hash_secret, verify_secret
 from ..seed import MARKETS
@@ -26,12 +26,13 @@ def tenant_out(t: Tenant | None) -> dict | None:
         "auto_print_kot": t.auto_print_kot, "auto_print_receipt": t.auto_print_receipt,
         "modules": [m for m in (t.modules or []) if m in MODULES],
         "trial_ends_at": t.trial_ends_at.isoformat() if t.trial_ends_at else None,
+        "brand_id": t.brand_id, "location_name": t.location_name or "",
     }
 
 
 def session_out(u: User, t: Tenant | None) -> dict:
     return {
-        "token": create_token(u.id, u.tenant_id, u.role),
+        "token": create_token(u.id, t.id if t else u.tenant_id, u.role),
         "user": {"id": u.id, "name": u.name, "email": u.email, "role": u.role,
                  "permissions": sorted(PERMISSIONS.get(u.role, set()))},
         "tenant": tenant_out(t),
@@ -125,6 +126,23 @@ def me(ctx: Ctx = Depends(current_user)):
     out = session_out(ctx.user, ctx.tenant)
     out.pop("token")
     return out
+
+
+class SwitchIn(BaseModel):
+    tenant_id: str = Field(max_length=36)
+
+
+@router.post("/auth/switch")
+def switch_location(body: SwitchIn, ctx: Ctx = Depends(current_user), db: Session = Depends(get_db)):
+    """Move the signed-in owner/manager to another location of the same business (new token for that tenant)."""
+    u = ctx.user
+    home = db.get(Tenant, u.tenant_id) if u.tenant_id else None
+    target = db.get(Tenant, body.tenant_id)
+    if home is None or target is None or not has_location_access(db, u, home, target):
+        raise HTTPException(403, "You don't have access to that location")
+    if target.status not in LIVE_STATUSES:
+        raise HTTPException(403, f"That location is {target.status}")
+    return session_out(u, target)
 
 
 class SignupIn(BaseModel):

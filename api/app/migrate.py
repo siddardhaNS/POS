@@ -30,6 +30,8 @@ COLUMNS: dict[str, list[tuple[str, str, str | None]]] = {
         ("require_clock_in", "BOOLEAN NOT NULL DEFAULT FALSE", None),
         ("ot_daily_hours", "NUMERIC(4,1) NOT NULL DEFAULT 0", None),
         ("ot_weekly_hours", "NUMERIC(5,1) NOT NULL DEFAULT 40", None),
+        ("brand_id", "VARCHAR(36) NULL REFERENCES brands(id) ON DELETE SET NULL", None),
+        ("location_name", "VARCHAR(80) NOT NULL DEFAULT ''", None),
     ],
     "users": [
         ("hourly_rate", "NUMERIC(10,2) NOT NULL DEFAULT 0", None),

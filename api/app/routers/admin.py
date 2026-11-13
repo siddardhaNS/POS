@@ -9,7 +9,7 @@ from sqlalchemy.orm import Session
 from ..config import settings
 from ..db import get_db
 from ..deps import MODULES, Ctx, platform_admin
-from ..models import Order, Tenant, User, now
+from ..models import Brand, Order, Tenant, User, now
 from ..seed import provision_tenant
 
 router = APIRouter(prefix="/admin", tags=["admin"])
@@ -26,6 +26,7 @@ def row(t: Tenant, users: int = 0) -> dict:
         "created_at": t.created_at.isoformat(),
         "reviewed_at": t.reviewed_at.isoformat() if t.reviewed_at else None,
         "trial_ends_at": t.trial_ends_at.isoformat() if t.trial_ends_at else None,
+        "brand_id": t.brand_id, "location_name": t.location_name or "",
     }
 
 
@@ -49,7 +50,14 @@ def list_tenants(status: str | None = None, q: str | None = None, _: Ctx = Depen
         like = f"%{q.lower()}%"
         stmt = stmt.where(func.lower(Tenant.name).like(like) | func.lower(Tenant.email).like(like)
                           | func.lower(Tenant.city).like(like))
-    return [row(t, n) for t, n in db.execute(stmt.order_by(Tenant.created_at.desc())).all()]
+    out = [row(t, n) for t, n in db.execute(stmt.order_by(Tenant.created_at.desc())).all()]
+    brands = {b.id: b.name for b in db.scalars(select(Brand))}
+    sizes = dict(db.execute(select(Tenant.brand_id, func.count()).where(Tenant.brand_id.is_not(None))
+                            .group_by(Tenant.brand_id)).all())
+    for r in out:  # multi-location businesses: brand name and how many locations it runs
+        r["brand"] = brands.get(r["brand_id"])
+        r["locations"] = sizes.get(r["brand_id"], 1)
+    return out
 
 
 class ReviewIn(BaseModel):

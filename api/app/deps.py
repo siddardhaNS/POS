@@ -2,10 +2,11 @@ from dataclasses import dataclass
 
 from fastapi import Depends, HTTPException, status
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
+from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from .db import get_db
-from .models import Tenant, User
+from .models import Tenant, User, UserLocation
 from .security import decode_token
 
 bearer = HTTPBearer(auto_error=False)
@@ -19,6 +20,7 @@ MODULES: dict[str, tuple[str, str]] = {
     "printing": ("Direct printing", "Thermal receipt and kitchen printers routed by station, and the print bridge."),
     "menu_scan": ("Menu photo scan", "Build the menu from photos or PDFs of a printed menu."),
     "inventory": ("Inventory", "Stock, recipes and food cost, suppliers and purchase orders, stock counts, low-stock alerts."),
+    "locations": ("Multi-location", "Run several outlets under one business: switch location, add outlets with the menu copied, combined reports, manager access per outlet."),
     "timeclock": ("Staff time", "Clock in and out with a PIN, breaks, timesheets with overtime, labour cost, tip pooling and payroll export."),
 }
 
@@ -31,7 +33,7 @@ def has_module(t: Tenant | None, key: str) -> bool:
 PERMISSIONS: dict[str, set[str]] = {
     "owner": {"floor", "order", "pay", "online", "kds", "reports", "menu", "menu_edit", "staff", "settings",
               "tables", "discount", "refund", "cash", "history",
-              "inventory", "inventory_waste", "timesheets"},
+              "inventory", "inventory_waste", "timesheets", "locations"},
     "manager": {"floor", "order", "pay", "online", "kds", "reports", "menu", "menu_edit", "staff",
                 "tables", "discount", "refund", "cash", "history",
                 "inventory", "inventory_waste", "timesheets"},
@@ -66,7 +68,28 @@ def current_user(
     if not user or not user.is_active:
         raise HTTPException(status.HTTP_401_UNAUTHORIZED, "Account disabled")
     tenant = db.get(Tenant, user.tenant_id) if user.tenant_id else None
+    tid = data.get("tid")
+    if tenant is not None and tid and tid != tenant.id:
+        # Token for another location of the business (POST /auth/switch). Re-check access on every request so
+        # revoked grants and forged tenant claims never reach a tenant-scoped endpoint.
+        other = db.get(Tenant, tid)
+        if other is None or not has_location_access(db, user, tenant, other):
+            raise HTTPException(status.HTTP_401_UNAUTHORIZED, "You no longer have access to this location")
+        tenant = other
     return Ctx(user=user, tenant=tenant)
+
+
+def has_location_access(db: Session, user: User, home: Tenant, target: Tenant) -> bool:
+    """May `user` (whose home tenant is `home`) work in `target`? Only within the same brand: owners reach every
+    location of their brand, managers only locations they were granted."""
+    if target.id == home.id:
+        return True
+    if not home.brand_id or target.brand_id != home.brand_id or user.role not in ("owner", "manager"):
+        return False
+    if user.role == "owner":
+        return True
+    return db.scalar(select(UserLocation.id).where(UserLocation.user_id == user.id,
+                                                   UserLocation.tenant_id == target.id)) is not None
 
 
 def platform_admin(ctx: Ctx = Depends(current_user)) -> Ctx:
