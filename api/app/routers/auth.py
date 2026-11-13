@@ -6,6 +6,7 @@ from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from ..db import get_db
+from ..live import audit
 from ..deps import LIVE_STATUSES, PERMISSIONS, Ctx, current_user, tenant_user
 from ..models import Tenant, User
 from ..security import create_token, hash_secret, verify_secret
@@ -55,6 +56,28 @@ def login(body: LoginIn, db: Session = Depends(get_db)):
         }.get(t.status, "Account unavailable")
         raise HTTPException(403, msg)
     return session_out(u, t)
+
+
+class PasswordIn(BaseModel):
+    current_password: str
+    new_password: str = Field(min_length=8, max_length=128)
+
+
+@router.post("/auth/password")
+def change_password(body: PasswordIn, ctx: Ctx = Depends(current_user), db: Session = Depends(get_db)):
+    """Change the signed-in user's own password (owners and platform admins; PIN-only staff have none)."""
+    u = ctx.user
+    if not u.password_hash:
+        raise HTTPException(400, "This account signs in with a PIN, not a password")
+    if not verify_secret(body.current_password, u.password_hash):
+        raise HTTPException(400, "Current password is incorrect")
+    if body.new_password == body.current_password:
+        raise HTTPException(400, "Choose a password you haven't used here")
+    u.password_hash = hash_secret(body.new_password)
+    if ctx.tenant is not None:
+        audit(db, ctx, "password_changed")
+    db.commit()
+    return {"ok": True}
 
 
 class PinIn(BaseModel):

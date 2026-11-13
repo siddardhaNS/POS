@@ -1,7 +1,8 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { Armchair, Printer } from "lucide-react";
+import { Armchair, KeyRound, Printer } from "lucide-react";
+import { ChangePasswordDialog } from "@/components/change-password";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
@@ -27,7 +28,8 @@ function Toggle({ on, onChange, label, hint }: { on: boolean; onChange: (v: bool
 }
 
 export function SettingsScreen() {
-  const { go } = usePos();
+  const { go, s } = usePos();
+  const [pwOpen, setPwOpen] = useState(false);
   const [tab, setTab] = useState<"restaurant" | "tax" | "receipts">("restaurant");
   return (
     <div className="flex h-full flex-col gap-5 overflow-auto p-5 md:p-7">
@@ -38,6 +40,12 @@ export function SettingsScreen() {
         <button onClick={() => go("floorplan")} className="flex items-center gap-1.5 rounded-xl bg-card px-3.5 py-2 text-sm font-medium ring-1 ring-border">
           <Armchair className="size-4" />Tables are in Floor plan
         </button>
+        {s.user.role === "owner" && (
+          <button onClick={() => setPwOpen(true)} className="flex items-center gap-1.5 rounded-xl bg-card px-3.5 py-2 text-sm font-medium ring-1 ring-border">
+            <KeyRound className="size-4" />Change owner password
+          </button>
+        )}
+        <ChangePasswordDialog open={pwOpen} onOpenChange={setPwOpen} />
       </div>
       <TenantForm tab={tab} />
     </div>

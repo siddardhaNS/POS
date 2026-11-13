@@ -3,8 +3,9 @@
 import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { toast } from "sonner";
-import { Ban, Building2, Check, Clock, LogOut, Mail, MapPin, Phone, Play, Search, Store, X } from "lucide-react";
+import { Ban, Building2, Check, Clock, KeyRound, LogOut, Mail, MapPin, Phone, Play, Search, Store, X } from "lucide-react";
 import { Logo } from "@/components/brand";
+import { ChangePasswordDialog } from "@/components/change-password";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
@@ -49,6 +50,7 @@ const ago = (s: string) => {
 export default function AdminPage() {
   const router = useRouter();
   const [ready, setReady] = useState(false);
+  const [pwOpen, setPwOpen] = useState(false);
   const [filter, setFilter] = useState("pending");
   const [q, setQ] = useState("");
   const [rows, setRows] = useState<TenantRow[]>([]);
@@ -139,8 +141,13 @@ export default function AdminPage() {
           <div className="mt-1.5 flex justify-between"><span>Live · USD</span><span className="font-mono text-white">{stats?.live_by_market.US ?? 0}</span></div>
           <div className="mt-1.5 flex justify-between"><span>Paid orders</span><span className="font-mono text-white">{stats?.paid_orders ?? 0}</span></div>
         </div>
-        <button onClick={() => { session.clear(); router.push("/login"); }}
+        <button onClick={() => setPwOpen(true)}
           className="mt-3 flex items-center gap-2 rounded-lg px-3 py-2 text-sm text-white/55 hover:text-white">
+          <KeyRound className="size-4" />Change password
+        </button>
+        <ChangePasswordDialog open={pwOpen} onOpenChange={setPwOpen} />
+        <button onClick={() => { session.clear(); router.push("/login"); }}
+          className="flex items-center gap-2 rounded-lg px-3 py-2 text-sm text-white/55 hover:text-white">
           <LogOut className="size-4" />Sign out
         </button>
       </aside>
