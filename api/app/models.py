@@ -565,3 +565,32 @@ class ServiceRequest(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now, index=True)
     done_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     done_by: Mapped[str] = mapped_column(String(120), default="")
+
+
+# ---------- Reservations & waitlist ----------
+
+class Reservation(Base):
+    """A booking for a time, or a walk-in party on the waitlist (kind)."""
+    __tablename__ = "reservations"
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=uid)
+    tenant_id: Mapped[str] = mapped_column(ForeignKey("tenants.id", ondelete="CASCADE"), index=True)
+    kind: Mapped[str] = mapped_column(String(10), default="booking")  # booking | waitlist
+    name: Mapped[str] = mapped_column(String(120))
+    phone: Mapped[str] = mapped_column(String(40), default="")
+    email: Mapped[str] = mapped_column(String(200), default="")
+    party_size: Mapped[int] = mapped_column(Integer, default=2)
+    at: Mapped[datetime] = mapped_column(DateTime(timezone=True), index=True)  # booking time, or when they joined the list
+    duration_min: Mapped[int] = mapped_column(Integer, default=90)
+    table_id: Mapped[str | None] = mapped_column(ForeignKey("dining_tables.id", ondelete="SET NULL"), nullable=True)
+    section: Mapped[str] = mapped_column(String(40), default="")  # seating preference
+    notes: Mapped[str] = mapped_column(Text, default="")
+    source: Mapped[str] = mapped_column(String(12), default="phone")  # phone | walk_in | online | other
+    # booking: booked | confirmed | seated | completed | cancelled | no_show ; waitlist: waiting | notified | seated | left
+    status: Mapped[str] = mapped_column(String(12), default="booked", index=True)
+    quoted_min: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    notified_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    seated_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    order_id: Mapped[str | None] = mapped_column(ForeignKey("orders.id", ondelete="SET NULL"), nullable=True)
+    created_by: Mapped[str] = mapped_column(String(120), default="")
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now)

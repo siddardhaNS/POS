@@ -2,7 +2,7 @@
 
 import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { Activity, Armchair, BarChart3, Bike, Boxes, Clock, MapPin, ChefHat, History, LayoutGrid, Lock, Menu as MenuIcon, ReceiptText, Settings, UtensilsCrossed, Users, Wallet, X } from "lucide-react";
+import { Activity, Armchair, BarChart3, Bike, Boxes, CalendarClock, Clock, MapPin, ChefHat, History, LayoutGrid, Lock, Menu as MenuIcon, ReceiptText, Settings, UtensilsCrossed, Users, Wallet, X } from "lucide-react";
 import { MenuAdmin, Staff } from "@/components/pos/backoffice";
 import { ReportsScreen } from "@/components/pos/reports";
 import { CashScreen } from "@/components/pos/cash";
@@ -12,6 +12,7 @@ import { ActivityScreen } from "@/components/pos/activity";
 import { FloorPlanEditor } from "@/components/pos/floorplan";
 import { InventoryScreen } from "@/components/pos/inventory";
 import { TimesheetsScreen } from "@/components/pos/timesheets";
+import { ReservationsScreen } from "@/components/pos/reservations";
 import { LocationSwitcher, LocationsScreen } from "@/components/pos/locations";
 import { Floor } from "@/components/pos/floor";
 import { Kitchen, Online } from "@/components/pos/kitchen";
@@ -26,6 +27,7 @@ import { cn } from "@/lib/utils";
 const MODULES: { k: Screen; l: string; perm: string; module?: string; group: "SERVICE" | "MANAGE"; icon: React.ComponentType<{ className?: string }> }[] = [
   { k: "floor", l: "Floor", perm: "floor", group: "SERVICE", icon: LayoutGrid },
   { k: "order", l: "Current check", perm: "order", group: "SERVICE", icon: ReceiptText },
+  { k: "reservations", l: "Reservations", perm: "floor", module: "reservations", group: "SERVICE", icon: CalendarClock },
   { k: "orders", l: "Order history", perm: "history", group: "SERVICE", icon: History },
   { k: "online", l: "Online orders", perm: "online", module: "online", group: "SERVICE", icon: Bike },
   { k: "kds", l: "Kitchen", perm: "kds", group: "SERVICE", icon: ChefHat },
@@ -236,6 +238,7 @@ function ShellInner({ s, screen, go, orderId, payNow, allowed, navOpen, setNavOp
             {screen === "staff" && <Staff />}
             {screen === "timesheets" && <TimesheetsScreen />}
             {screen === "locations" && <LocationsScreen />}
+            {screen === "reservations" && <ReservationsScreen />}
           </main>
         </div>
       </div>

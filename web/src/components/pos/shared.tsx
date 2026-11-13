@@ -5,7 +5,7 @@ import { toast } from "sonner";
 import { api, money, type Session, type Tenant } from "@/lib/api";
 import { cn } from "@/lib/utils";
 
-export type Screen = "floor" | "order" | "orders" | "cash" | "online" | "kds" | "dash" | "menu" | "staff" | "settings" | "audit" | "floorplan" | "inventory" | "timesheets" | "locations";
+export type Screen = "floor" | "order" | "orders" | "cash" | "online" | "kds" | "dash" | "menu" | "staff" | "settings" | "audit" | "floorplan" | "inventory" | "timesheets" | "locations" | "reservations";
 
 export interface PosCtx {
   s: Session;
@@ -48,7 +48,7 @@ export const useFmt = (s: Session) => useCallback((v: number) => money(v, s.tena
 
 /* ---------- Live updates ---------- */
 
-export type Topic = "floor" | "orders" | "online" | "kds" | "cash" | "menu" | "audit" | "print" | "inventory" | "timeclock" | "requests";
+export type Topic = "floor" | "orders" | "online" | "kds" | "cash" | "menu" | "audit" | "print" | "inventory" | "timeclock" | "requests" | "reservations";
 export type Revs = Partial<Record<Topic, number>>;
 export const Live = createContext<Revs>({});
 
