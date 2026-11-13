@@ -59,6 +59,9 @@ COLUMNS: dict[str, list[tuple[str, str, str | None]]] = {
         ("details", "JSON NOT NULL DEFAULT '{}'", None),
         ("custom_fields", "JSON NOT NULL DEFAULT '[]'", None),
     ],
+    "floor_sections": [
+        ("layout", "JSON NOT NULL DEFAULT '{}'", None),
+    ],
     "kots": [
         ("bumped_at", "TIMESTAMPTZ NULL", "UPDATE kots SET bumped_at = created_at WHERE bumped"),
         ("course", "INTEGER NOT NULL DEFAULT 0", None),

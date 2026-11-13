@@ -10,6 +10,7 @@ import { cn } from "@/lib/utils";
 import { Empty, Seg, clock, run, useNow, usePoll, usePos } from "./shared";
 import type { Order, TableRow } from "./types";
 import { TableGlyph, type PlanSection, gridBg, planBounds, useCell } from "./floorplan";
+import { LayoutLayer, asLayout, layoutBounds } from "./layout";
 
 export type { TableRow } from "./types";
 
@@ -96,7 +97,7 @@ export function Floor() {
               ))}
             </div>
           </div>
-          <PlanView tables={(tables ?? []).filter((t) => t.section === activeSection)} now={now} fmt={fmt} onOpen={(t) => open(t)} />
+          <PlanView tables={(tables ?? []).filter((t) => t.section === activeSection)} layout={plan?.sections.find((x) => x.name === activeSection)?.layout} now={now} fmt={fmt} onOpen={(t) => open(t)} />
         </>
       ) : view === "map" ? (
         <>
@@ -193,13 +194,16 @@ function TakeawayDialog({ onClose, onCreated }: { onClose: () => void; onCreated
   );
 }
 
-function PlanView({ tables, now, fmt, onOpen }: { tables: TableRow[]; now: number; fmt: (v: number) => string; onOpen: (t: TableRow) => void }) {
+function PlanView({ tables, layout: raw, now, fmt, onOpen }: { tables: TableRow[]; layout?: unknown; now: number; fmt: (v: number) => string; onOpen: (t: TableRow) => void }) {
   const wrap = useRef<HTMLDivElement>(null);
   const cell = useCell(wrap);
-  const { cols, rows } = planBounds(tables);
+  const layout = asLayout(raw);
+  const tb = planBounds(tables), lb = layoutBounds(layout);
+  const cols = Math.max(tb.cols, lb.cols + 2), rows = Math.max(tb.rows, lb.rows + 2);
   return (
     <div ref={wrap} className="relative min-h-[420px] flex-1 overflow-auto rounded-3xl border border-border bg-[#fbf8f3]">
       <div className="relative" style={{ width: cols * cell, height: rows * cell, ...gridBg(cell) }}>
+        <LayoutLayer layout={layout} cell={cell} cols={cols} rows={rows} />
         {tables.map((t) => {
           const mins = t.kitchen_since ? Math.floor((now - new Date(t.kitchen_since).getTime()) / 60000) : 0;
           const late = t.state === "kitchen" && mins > 15;

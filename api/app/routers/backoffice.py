@@ -335,7 +335,7 @@ def table_out(t: DiningTable) -> dict:
 
 
 def section_out(s: FloorSection) -> dict:
-    return {"id": s.id, "name": s.name, "sort": s.sort}
+    return {"id": s.id, "name": s.name, "sort": s.sort, "layout": s.layout or {}}
 
 
 @router.get("/floor/plan")
@@ -347,7 +347,7 @@ def floor_plan(ctx: Ctx = Depends(require("floor")), db: Session = Depends(get_d
     for t in ts:  # a table whose section row is missing still shows up
         if t.section not in names:
             names.add(t.section)
-            secs.append({"id": f"implicit:{t.section}", "name": t.section, "sort": len(secs)})
+            secs.append({"id": f"implicit:{t.section}", "name": t.section, "sort": len(secs), "layout": {}})
     return {"sections": secs, "tables": [table_out(t) for t in ts]}
 
 
@@ -396,6 +396,56 @@ def rename_section(sid: str, body: SectionIn, ctx: Ctx = Depends(require("tables
     s.name = name
     db.commit()
     return floor_plan(ctx, db)
+
+
+LINE_KINDS = ("wall", "door", "window")
+AREA_KINDS = ("kitchen", "bar", "counter", "restroom", "stage", "stairs", "zone", "pillar", "plant")
+
+
+class LayoutItem(BaseModel):
+    id: str = Field(min_length=1, max_length=40)
+    kind: str = Field(pattern=r"^(wall|door|window|kitchen|bar|counter|restroom|stage|stairs|zone|pillar|plant)$")
+    # lines: x1,y1 -> x2,y2 ; areas: x,y,w,h (grid units)
+    x1: float | None = Field(default=None, ge=0, le=300)
+    y1: float | None = Field(default=None, ge=0, le=300)
+    x2: float | None = Field(default=None, ge=0, le=300)
+    y2: float | None = Field(default=None, ge=0, le=300)
+    x: float | None = Field(default=None, ge=0, le=300)
+    y: float | None = Field(default=None, ge=0, le=300)
+    w: float | None = Field(default=None, gt=0, le=300)
+    h: float | None = Field(default=None, gt=0, le=300)
+    label: str = Field(default="", max_length=40)
+
+
+class LayoutIn(BaseModel):
+    section: str = Field(min_length=1, max_length=40)
+    room: list[tuple[float, float]] = Field(default_factory=list, max_length=80)
+    items: list[LayoutItem] = Field(default_factory=list, max_length=400)
+
+
+@router.put("/floor/layout")
+def save_layout(body: LayoutIn, ctx: Ctx = Depends(require("tables")), db: Session = Depends(get_db)):
+    """Save the drawn layout of one section: the room outline plus walls, doors, windows and areas."""
+    if body.room and len(body.room) < 3:
+        raise HTTPException(422, "A room outline needs at least 3 corners")
+    if any(not (0 <= v <= 300) for p in body.room for v in p):
+        raise HTTPException(422, "The room outline is off the plan")
+    items = []
+    for it in body.items:
+        if it.kind in LINE_KINDS:
+            if None in (it.x1, it.y1, it.x2, it.y2) or (it.x1, it.y1) == (it.x2, it.y2):
+                raise HTTPException(422, f"A {it.kind} needs a start and an end")
+            items.append({"id": it.id, "kind": it.kind, "x1": it.x1, "y1": it.y1, "x2": it.x2, "y2": it.y2, "label": it.label})
+        else:
+            if None in (it.x, it.y, it.w, it.h):
+                raise HTTPException(422, f"A {it.kind} area needs a position and a size")
+            items.append({"id": it.id, "kind": it.kind, "x": it.x, "y": it.y, "w": it.w, "h": it.h, "label": it.label})
+    name = body.section.strip()
+    ensure_section(db, ctx, name)
+    s = db.scalar(select(FloorSection).where(FloorSection.tenant_id == ctx.tenant_id, FloorSection.name == name))
+    s.layout = {"room": [[x, y] for x, y in body.room], "items": items}
+    db.commit()
+    return section_out(s)
 
 
 @router.delete("/floor/sections/{sid}")

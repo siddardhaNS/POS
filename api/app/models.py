@@ -110,6 +110,8 @@ class FloorSection(Base):
     tenant_id: Mapped[str] = mapped_column(ForeignKey("tenants.id", ondelete="CASCADE"), index=True)
     name: Mapped[str] = mapped_column(String(40))
     sort: Mapped[int] = mapped_column(Integer, default=0)
+    # Drawn layout in grid units: {"room": [[x, y], ...], "items": [walls, doors, windows, areas...]}
+    layout: Mapped[dict] = mapped_column(JSON, default=dict)
 
 
 class Order(Base):
