@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useEffect, useState } from "react";
-import { ArrowRight, Bike, Check, Clock, Laptop, Lock, Monitor, Package, QrCode, ScanLine, Smartphone, Tablet } from "lucide-react";
+import { ArrowRight, Bike, Boxes, Building2, Check, Clock, Gift, Laptop, Lock, Monitor, Package, QrCode, ReceiptText, ScanLine, Smartphone, Tablet, WifiOff } from "lucide-react";
 import { cn } from "@/lib/utils";
 
 /* Tiffin 1a palette */
@@ -46,9 +46,31 @@ const TABS = [
 ] as const;
 type TabId = (typeof TABS)[number]["id"];
 
+const FEATURES = [
+  { icon: QrCode, title: "Guests order from the table", tag: "TABLE QR", body: "Scan, browse, order, call a server or ask for the bill. Orders chime on the floor or go straight to the kitchen. More covers, fewer steps." },
+  { icon: WifiOff, title: "Never stops billing", tag: "WORKS OFFLINE", body: "Internet down on a Saturday night? The counter app keeps billing with token numbers and catches up the second it's back." },
+  { icon: Gift, title: "Offers that bring them back", tag: "OFFERS & LOYALTY", body: "Happy hours, buy-2-get-1, codes and points per visit, applied automatically. Know your regulars by name, birthday and usual order." },
+  { icon: ReceiptText, title: "GST & sales tax done right", tag: "TAX & INVOICES", body: "Rates per dish, HSN codes, tax split on every bill, invoice numbers per financial year and a filing-ready HSN summary." },
+  { icon: Boxes, title: "Know your food cost", tag: "INVENTORY", body: "Recipes deduct stock as you sell, dishes sell out when ingredients run out, and low stock drafts the purchase order for you." },
+  { icon: Smartphone, title: "Your restaurant in your pocket", tag: "PHONE APP", body: "Waiters take orders table-side and fire them to the kitchen. Owners see today's sales, best sellers and every outlet live." },
+  { icon: Bike, title: "Delivery, takeaway & events", tag: "EVERY CHANNEL", body: "Your own riders, delivery apps, counter orders and catering with advances, all in one queue the kitchen actually trusts." },
+  { icon: Building2, title: "Grow to many outlets", tag: "MULTI-LOCATION", body: "Push the menu and prices to every outlet, move stock between them and see combined sales without switching accounts." },
+] as const;
+
+const APPS = [
+  { icon: Monitor, title: "Counter desktop app", body: "Every feature, silent receipt printing, and billing that survives a dead connection." },
+  { icon: Smartphone, title: "Staff phone app", body: "Table-side ordering for waiters, live numbers for owners. One app, shown by role." },
+  { icon: Tablet, title: "Self-order kiosk", body: "A touch screen at the counter. Guests order, get a number, pay at the till." },
+  { icon: QrCode, title: "Table QR menu", body: "No app to download. Guests scan and order; you keep the whole margin." },
+] as const;
+
 const SEGMENTS = ["Full service", "Quick service", "Fine dining", "Cafés & bakeries", "Bars & breweries", "Cloud kitchens", "Food trucks"];
 
 const FAQ = [
+  ["What happens when the internet goes down?", "The Tiffin Counter desktop app keeps billing: menu, prices and taxes are stored on the computer, every bill gets a token number, and sales are sent to Tiffin the moment the connection is back. Nothing is lost, nothing is billed twice."],
+  ["Is it ready for GST?", "Yes. Set 5%, 12% or 18% per dish or category with HSN codes; bills show CGST and SGST, paid checks get sequential invoice numbers per financial year, and the tax report gives you the HSN summary for filing. Prices can include or exclude tax."],
+  ["Do my staff need new devices?", "No. Waiters use their phones to take orders at the table, owners check sales from anywhere, the counter runs the desktop app on any Windows PC, and the kitchen screen works on any tablet."],
+  ["Can guests order without waiting for a server?", "Yes. Every table gets its own QR code: guests see the menu with descriptions and allergens, order, call a server or ask for the bill. You choose whether orders go straight to the kitchen or wait for a server to confirm."],
   ["How does the free trial work?", "Apply in about two minutes. Our team reviews every restaurant, usually within one business day. Once approved you get 14 days free, with your menu and floor ready to go."],
   ["Do I need new hardware?", "No. Tiffin runs in the browser on the tablets, laptops and desktops you already own. Bring your own receipt printer and card reader, or ask us for recommendations."],
   ["Can I run multiple locations or brands?", "Yes. Each location has its own floor, menu prices and staff, and the back office shows reports across all of them."],
@@ -103,6 +125,7 @@ export function Landing() {
                 <span className="grid size-6 place-items-center rounded-[7px] bg-[#ec7a2c] text-sm font-semibold text-white">t</span>Tiffin
               </Link>
               <nav className="hidden gap-[26px] text-[13.5px] text-[#6f675d] lg:flex">
+                <a href="#features" className="hover:text-[#1c1915]">Features</a>
                 <a href="#product" onClick={() => setTab("pos")} className="hover:text-[#1c1915]">Product</a>
                 <a href="#product" onClick={() => setTab("kds")} className="hover:text-[#1c1915]">Kitchen</a>
                 <a href="#hardware" className="hover:text-[#1c1915]">Hardware</a>
@@ -121,17 +144,17 @@ export function Landing() {
         <section className="relative bg-[radial-gradient(60%_60%_at_85%_0%,rgba(236,122,44,.16),transparent_70%)] px-5 pt-10 md:px-14 md:pt-14">
           <div className="grid items-end gap-8 lg:grid-cols-2 lg:gap-10">
             <div>
-              <a href="#paper" className="inline-flex max-w-full items-center gap-2 rounded-full border border-[#1c1915]/10 bg-white py-[5px] pl-[5px] pr-3 text-[12.5px] text-[#6f675d]">
+              <a href="#apps" className="inline-flex max-w-full items-center gap-2 rounded-full border border-[#1c1915]/10 bg-white py-[5px] pl-[5px] pr-3 text-[12.5px] text-[#6f675d]">
                 <span className="rounded-full bg-[#1c1915] px-2 py-0.5 text-[11px] text-white">New</span>
-                <span className="truncate">Menu photo to first ticket in under 10 minutes →</span>
+                <span className="truncate">Keeps billing when the internet drops · desktop &amp; phone apps →</span>
               </a>
               <h1 className="mt-6 text-[46px] font-semibold leading-[0.98] tracking-[-0.045em] text-balance sm:text-[64px] xl:text-[84px]">
-                The restaurant POS that <span className={serif}>keeps up</span> with the rush.
+                The POS that <span className={serif}>never</span> makes the rush wait.
               </h1>
             </div>
             <div className="pb-2.5">
               <p className="max-w-[420px] text-[17px] leading-relaxed text-[#6f675d] md:text-lg">
-                Tables, tickets, kitchen display, online orders, payments and reports in one calm system that works on the devices you already own.
+                Guests order from the table, the kitchen sees it instantly, offers bring them back, and the counter keeps billing even when the Wi-Fi gives up. One calm system on the devices you already own.
               </p>
               <div className="mt-6 flex flex-wrap gap-2.5">
                 <Pill href="/signup" tone="orange">Start 14-day free trial →</Pill>
@@ -153,6 +176,44 @@ export function Landing() {
             ))}
           </div>
         </div>
+
+        {/* Built for the rush: the features that sell it */}
+        <section id="features" className="scroll-mt-20 px-5 pt-20 md:px-14 md:pt-[110px]">
+          <div className={kicker}>BUILT FOR THE RUSH</div>
+          <h2 className={cn(h2, "mt-3 max-w-[900px]")}>Everything that makes a busy night <span className={serif}>feel easy.</span></h2>
+          <p className="mt-4 max-w-[620px] text-[17px] leading-relaxed text-[#6f675d]">Not a till with add-ons. The whole restaurant in one place, from the first scan at the table to the last report at closing.</p>
+          <div className="mt-10 grid gap-3.5 sm:grid-cols-2 lg:grid-cols-4">
+            {FEATURES.map(({ icon: Icon, title, body, tag }) => (
+              <div key={title} className="group relative flex flex-col gap-3 rounded-[22px] border border-[#1c1915]/8 bg-white p-6 transition hover:-translate-y-0.5 hover:border-[#ec7a2c]/40 hover:shadow-[0_18px_40px_-24px_rgba(236,122,44,.55)]">
+                <span className="grid size-11 place-items-center rounded-2xl bg-[#ec7a2c]/12 text-[#c85f17] transition group-hover:bg-[#ec7a2c] group-hover:text-white"><Icon className="size-5" /></span>
+                <div className="text-[18px] font-semibold leading-snug tracking-[-0.02em]">{title}</div>
+                <p className="text-[14.5px] leading-relaxed text-[#6f675d]">{body}</p>
+                <span className="mt-auto pt-2 font-mono text-[11px] tracking-[0.08em] text-[#c85f17]">{tag}</span>
+              </div>
+            ))}
+          </div>
+        </section>
+
+        {/* Every device */}
+        <section id="apps" className="scroll-mt-20 px-5 pt-20 md:px-14 md:pt-[110px]">
+          <div className="grid gap-8 rounded-[28px] bg-[#1c1915] p-7 text-[#faf6f0] md:p-12 lg:grid-cols-[1fr_1.4fr] lg:items-center">
+            <div>
+              <div className="font-mono text-[11px] tracking-[0.1em] text-[#ec7a2c]">EVERY DEVICE, ONE TIFFIN</div>
+              <h2 className="mt-3 text-[36px] font-semibold leading-[1.02] tracking-[-0.04em] md:text-[48px]">The counter, the floor, the kitchen <span className="font-serif italic font-normal text-[#ec7a2c]">and your pocket.</span></h2>
+              <p className="mt-4 max-w-[440px] text-[16px] leading-relaxed text-[#faf6f0]/65">Change a price once and it&apos;s live on every screen. Sign in once and your whole team is on.</p>
+              <div className="mt-6"><Pill href="/signup" tone="orange">Start free, set up tonight →</Pill></div>
+            </div>
+            <div className="grid gap-3 sm:grid-cols-2">
+              {APPS.map(({ icon: Icon, title, body }) => (
+                <div key={title} className="rounded-2xl bg-white/[0.06] p-5 ring-1 ring-white/10">
+                  <Icon className="size-5 text-[#ec7a2c]" />
+                  <div className="mt-3 font-semibold">{title}</div>
+                  <p className="mt-1 text-[13.5px] leading-relaxed text-[#faf6f0]/60">{body}</p>
+                </div>
+              ))}
+            </div>
+          </div>
+        </section>
 
         {/* From paper to service */}
         <section id="paper" className="scroll-mt-20 px-5 pb-5 pt-20 md:px-14 md:pt-[110px]">
