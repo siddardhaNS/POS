@@ -157,6 +157,8 @@ def copy_menu(db: Session, src: Tenant, dst: Tenant, mode: str) -> dict:
 
     add_missing: create what dst lacks (categories, items, option groups on existing items); keep dst prices.
     overwrite_prices: the same, and also set dst item and option prices to src's.
+    full: overwrite_prices, and also each item's details (description, tags, allergens, nutrition, veg, station,
+          channels, availability) so every outlet matches the source.
     """
     stats = {"categories_added": 0, "items_added": 0, "groups_added": 0, "prices_updated": 0}
     src_cats = db.scalars(select(MenuCategory).where(MenuCategory.tenant_id == src.id).order_by(MenuCategory.sort)).all()
@@ -209,16 +211,21 @@ def copy_menu(db: Session, src: Tenant, dst: Tenant, mode: str) -> dict:
                 stats["groups_added"] += 1
             stats["items_added"] += 1
             continue
-        if mode == "overwrite_prices" and d.price != m.price:
+        if mode in ("overwrite_prices", "full") and d.price != m.price:
             d.price = m.price
             stats["prices_updated"] += 1
+        if mode == "full":
+            for f in ("description", "tags", "allergens", "nutrition", "is_veg", "station", "channels", "available"):
+                if getattr(d, f) != getattr(m, f):
+                    setattr(d, f, getattr(m, f))
+                    stats["details_updated"] = stats.get("details_updated", 0) + 1
         have = {g.name.lower(): g for g in dst_groups.get(d.id, [])}
         for g in src_groups.get(m.id, []):
             mine = have.get(g.name.lower())
             if mine is None:
                 db.add(clone_group(g, d))
                 stats["groups_added"] += 1
-            elif mode == "overwrite_prices":
+            elif mode in ("overwrite_prices", "full"):
                 opts = {o.name.lower(): o for o in mine.options}
                 for o in g.options:
                     if o.name.lower() in opts and opts[o.name.lower()].price != o.price:
@@ -323,7 +330,7 @@ def rename_location(tid: str, body: LocationPatch, ctx: Ctx = Depends(owner_only
 
 class CopyMenuIn(BaseModel):
     from_tenant_id: str = Field(max_length=36)
-    mode: str = Field(default="add_missing", pattern=r"^(add_missing|overwrite_prices)$")
+    mode: str = Field(default="add_missing", pattern=r"^(add_missing|overwrite_prices|full)$")
 
 
 @router.post("/locations/{tid}/copy-menu")
@@ -385,3 +392,27 @@ def set_access(user_id: str, body: AccessIn, ctx: Ctx = Depends(owner_only), db:
         db.add(UserLocation(user_id=m.id, tenant_id=tid, role="manager"))
     db.commit()
     return {"id": m.id, "tenant_ids": sorted(wanted)}
+
+
+class PushMenuIn(BaseModel):
+    to: list[str] = Field(min_length=1, max_length=100)
+    mode: str = Field(default="overwrite_prices", pattern=r"^(add_missing|overwrite_prices|full)$")
+
+
+@router.post("/locations/push-menu")
+def push_menu(body: PushMenuIn, ctx: Ctx = Depends(owner_only), db: Session = Depends(get_db)):
+    """Central menu: send this location's menu to the outlets picked (new dishes, prices, and with "full" the details
+    and availability too). Each outlet keeps anything it has that this one doesn't."""
+    src = brand_location(db, ctx, ctx.tenant_id)
+    out = []
+    for tid in dict.fromkeys(body.to):
+        dst = brand_location(db, ctx, tid)
+        if dst.id == src.id:
+            continue
+        stats = copy_menu(db, src, dst, body.mode)
+        db.add(AuditLog(tenant_id=dst.id, user_id=ctx.user.id, user_name=ctx.user.name, action="menu_sync",
+                        detail=f"Pushed from {src.location_name or src.name}: {stats['items_added']} items added, "
+                               f"{stats['prices_updated']} prices updated, {stats.get('details_updated', 0)} details updated"))
+        out.append({"id": dst.id, "name": dst.location_name or dst.name, **stats})
+    db.commit()
+    return out

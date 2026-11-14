@@ -2,7 +2,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
-import { Check, ChevronDown, Copy, MapPin, Plus, Store } from "lucide-react";
+import { Check, ChevronDown, Copy, MapPin, Plus, Send, Store } from "lucide-react";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -93,6 +93,7 @@ export function LocationsScreen() {
   const { data: sum } = usePoll<Summary>(`/locations/summary?start=${start}&end=${today.toISOString().slice(0, 10)}`, 60_000, "orders");
   const [adding, setAdding] = useState(false);
   const [copying, setCopying] = useState<Location | null>(null);
+  const [pushing, setPushing] = useState(false);
   const owner = s.user.role === "owner";
 
   async function rename(l: Location) {
@@ -107,7 +108,8 @@ export function LocationsScreen() {
           <h2 className="text-xl font-semibold">{s.tenant?.name}</h2>
           <p className="text-sm text-muted-foreground">{list ? `${list.length} location${list.length === 1 ? "" : "s"}` : ""}</p>
         </div>
-        {owner && <button onClick={() => setAdding(true)} className="ml-auto flex h-10 items-center gap-1.5 rounded-xl bg-foreground px-4 text-sm font-semibold text-background"><Plus className="size-4" />Add location</button>}
+        {owner && (list?.length ?? 0) > 1 && <button onClick={() => setPushing(true)} className="ml-auto flex h-10 items-center gap-1.5 rounded-xl bg-card px-4 text-sm font-semibold ring-1 ring-border"><Send className="size-4" />Push menu to outlets</button>}
+        {owner && <button onClick={() => setAdding(true)} className={cn((list?.length ?? 0) > 1 ? "" : "ml-auto", "flex h-10 items-center gap-1.5 rounded-xl bg-foreground px-4 text-sm font-semibold text-background")}><Plus className="size-4" />Add location</button>}
       </div>
 
       <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
@@ -182,6 +184,7 @@ export function LocationsScreen() {
       {owner && list && list.length > 1 && <ManagerAccess locations={list} />}
       {adding && list && <AddLocation locations={list} onClose={() => setAdding(false)} onAdded={() => { setAdding(false); reload(); }} />}
       {copying && list && <CopyMenu to={copying} locations={list} onClose={() => setCopying(null)} />}
+      {pushing && list && <PushMenu locations={list} onClose={() => setPushing(false)} />}
     </div>
   );
 }
@@ -276,6 +279,39 @@ function CopyMenu({ to, locations, onClose }: { to: Location; locations: Locatio
           </select>
           <Seg value={mode} onChange={setMode} options={[["add_missing", "Add missing items"], ["overwrite_prices", "Also update prices"]]} />
           <button onClick={go} className="h-11 rounded-xl bg-foreground font-semibold text-background">Copy menu</button>
+        </div>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+function PushMenu({ locations, onClose }: { locations: Location[]; onClose: () => void }) {
+  const here = locations.find((l) => l.current);
+  const others = locations.filter((l) => !l.current && ["trial", "active"].includes(l.status));
+  const [to, setTo] = useState<string[]>(others.map((l) => l.id));
+  const [mode, setMode] = useState<"add_missing" | "overwrite_prices" | "full">("overwrite_prices");
+  async function push() {
+    const r = await run(api<{ name: string; items_added: number; prices_updated: number; details_updated?: number }[]>("/locations/push-menu", { body: { to, mode } }));
+    if (!r) return;
+    toast.success(r.map((x) => `${x.name}: ${x.items_added} added, ${x.prices_updated} prices${x.details_updated ? `, ${x.details_updated} details` : ""}`).join(" · ") || "Nothing to change");
+    onClose();
+  }
+  return (
+    <Dialog open onOpenChange={(o) => !o && onClose()}>
+      <DialogContent className="sm:max-w-md">
+        <DialogHeader><DialogTitle>Push the menu from {here ? locationLabel(here) : "here"}</DialogTitle>
+          <DialogDescription>Change the menu once here, then send it to the outlets you pick. Dishes are matched by name; anything an outlet has that this one doesn&apos;t stays as it is.</DialogDescription></DialogHeader>
+        <div className="grid gap-4">
+          <div className="space-y-1.5">
+            {others.map((l) => (
+              <label key={l.id} className="flex items-center gap-2 text-sm"><input type="checkbox" checked={to.includes(l.id)} className="size-4"
+                onChange={(e) => setTo(e.target.checked ? [...to, l.id] : to.filter((x) => x !== l.id))} />{locationLabel(l)}</label>
+            ))}
+          </div>
+          <div className="space-y-2"><Label>What to send</Label>
+            <Seg value={mode} onChange={setMode} options={[["add_missing", "New dishes only"], ["overwrite_prices", "+ prices"], ["full", "+ prices & details"]]} />
+            <p className="text-xs text-muted-foreground">{mode === "full" ? "Prices, descriptions, allergens, channels and what's sold out are made the same everywhere." : mode === "overwrite_prices" ? "New dishes are added and prices are made the same." : "Only dishes the outlet doesn't have yet are added."}</p></div>
+          <button onClick={push} disabled={!to.length} className="h-11 rounded-xl bg-foreground font-semibold text-background disabled:opacity-40">Push to {to.length} outlet{to.length === 1 ? "" : "s"}</button>
         </div>
       </DialogContent>
     </Dialog>
