@@ -415,6 +415,20 @@ class StockItem(Base):
     supplier_id: Mapped[str | None] = mapped_column(ForeignKey("suppliers.id", ondelete="SET NULL"), nullable=True)
     active: Mapped[bool] = mapped_column(Boolean, default=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now)
+    # Preparation made in-house (gravy, dough, sauce): one batch of the PrepLines yields batch_yield base units
+    is_prep: Mapped[bool] = mapped_column(Boolean, default=False)
+    batch_yield: Mapped[Decimal] = mapped_column(Numeric(18, 4), default=Decimal("0"))
+
+
+class PrepLine(Base):
+    """One ingredient of a preparation's batch."""
+    __tablename__ = "prep_lines"
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=uid)
+    tenant_id: Mapped[str] = mapped_column(ForeignKey("tenants.id", ondelete="CASCADE"), index=True)
+    prep_id: Mapped[str] = mapped_column(ForeignKey("stock_items.id", ondelete="CASCADE"), index=True)
+    stock_item_id: Mapped[str] = mapped_column(ForeignKey("stock_items.id", ondelete="CASCADE"))
+    qty: Mapped[Decimal] = mapped_column(Numeric(18, 4))  # base units per batch
+    unit: Mapped[str] = mapped_column(String(10), default="g")
 
 
 class RecipeLine(Base):

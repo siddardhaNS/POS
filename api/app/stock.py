@@ -23,7 +23,7 @@ UNITS: dict[str, tuple[str, Decimal]] = {
     "dozen": ("pc", Decimal("12")),
 }
 UNIT_PATTERN = r"^(g|kg|oz|lb|ml|l|fl oz|pc|dozen)$"
-KINDS = ("received", "sale", "waste", "adjust", "count", "transfer_in", "transfer_out")
+KINDS = ("received", "sale", "waste", "adjust", "count", "transfer_in", "transfer_out", "produced", "prep_use")
 Q4 = Decimal("0.0001")
 Q6 = Decimal("0.000001")
 
@@ -59,7 +59,7 @@ def apply_movement(db: Session, item: StockItem, kind: str, qty: Decimal, *, uni
     assert kind in KINDS
     qty = D(qty).quantize(Q4)
     cost = D(item.avg_cost) if unit_cost is None else D(unit_cost)
-    if kind in ("received", "transfer_in") and qty > 0 and unit_cost is not None:
+    if kind in ("received", "transfer_in", "produced") and qty > 0 and unit_cost is not None:
         held = max(D(item.on_hand), Decimal(0))
         item.avg_cost = ((held * D(item.avg_cost) + qty * cost) / (held + qty)).quantize(Q6)
     item.on_hand = D(item.on_hand) + qty

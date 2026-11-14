@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { toast } from "sonner";
 import { AlertTriangle, History, PackagePlus, Plus, Trash2 } from "lucide-react";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
@@ -14,7 +14,7 @@ import { Empty, Seg, run, usePoll, usePos } from "./shared";
 
 interface Stock {
   id: string; name: string; category: string; unit: string; on_hand: number; par_level: number; cost: number; value: number;
-  low: boolean; out: boolean; supplier_id: string | null; supplier: string; active: boolean; recipes: number;
+  low: boolean; out: boolean; supplier_id: string | null; supplier: string; active: boolean; recipes: number; is_prep?: boolean;
 }
 interface StockList { items: Stock[]; value: number; low: number; auto_86: boolean }
 interface Move { id: string; kind: string; qty: number; unit: string; cost: number; value: number; reason: string; user: string; created_at: string }
@@ -41,7 +41,7 @@ const ALL_UNITS = Object.values(UNITS).flat();
 const n3 = (v: number) => (Math.round(v * 1000) / 1000).toLocaleString(undefined, { maximumFractionDigits: 3 });
 
 const PO_TONE: Record<string, string> = { draft: "bg-muted text-muted-foreground", sent: "bg-sky/15 text-sky", received: "bg-leaf/15 text-[oklch(0.45_0.12_150)]", cancelled: "bg-muted text-muted-foreground" };
-const KIND_LABEL: Record<string, string> = { received: "Received", sale: "Sold", waste: "Waste", adjust: "Adjusted", count: "Count", transfer_in: "Transfer in", transfer_out: "Transfer out" };
+const KIND_LABEL: Record<string, string> = { received: "Received", sale: "Sold", waste: "Waste", adjust: "Adjusted", count: "Count", transfer_in: "Transfer in", transfer_out: "Transfer out", produced: "Made in-house", prep_use: "Used in a preparation" };
 
 type Tab = "stock" | "recipes" | "orders" | "suppliers" | "count" | "report";
 
@@ -107,6 +107,7 @@ function StockTab({ manage }: { manage: boolean }) {
   const [edit, setEdit] = useState<Stock | "new" | null>(null);
   const [mv, setMv] = useState<{ item: Stock; kind: "received" | "waste" | "adjust" } | null>(null);
   const [hist, setHist] = useState<Stock | null>(null);
+  const [prep, setPrep] = useState<Stock | null>(null);
 
   const rows = (data?.items ?? []).filter((i) => (!onlyLow || i.low) && (!q || `${i.name} ${i.category}`.toLowerCase().includes(q.toLowerCase())));
   async function auto86(v: boolean) {
@@ -142,6 +143,7 @@ function StockTab({ manage }: { manage: boolean }) {
                   <tr key={i.id} className="border-b border-border/60 last:border-0">
                     <td className="px-4 py-3">
                       <div className="flex items-center gap-2 font-medium">{i.name}
+                        {i.is_prep && <span className="rounded-md bg-muted px-1.5 py-0.5 text-[11px] font-semibold text-muted-foreground">Made here</span>}
                         {i.out ? <span className="rounded-md bg-destructive/10 px-1.5 py-0.5 text-[11px] font-semibold text-destructive">Out</span>
                           : i.low && <span className="rounded-md bg-saffron/20 px-1.5 py-0.5 text-[11px] font-semibold text-saffron-deep">Low</span>}
                       </div>
@@ -153,7 +155,9 @@ function StockTab({ manage }: { manage: boolean }) {
                     <td className="px-4 py-3 text-right font-mono tabular">{fmt(i.value)}</td>
                     <td className="px-4 py-3">
                       <div className="flex justify-end gap-1.5">
-                        {manage && <Btn onClick={() => setMv({ item: i, kind: "received" })}>Receive</Btn>}
+                        {i.is_prep && <Btn onClick={() => setPrep(i)} className="bg-saffron/20 text-saffron-deep">Make</Btn>}
+                        {manage && !i.is_prep && <Btn onClick={() => setMv({ item: i, kind: "received" })}>Receive</Btn>}
+                        {manage && !i.is_prep && <Btn onClick={() => setPrep(i)} title="Made in-house from other stock">Prep</Btn>}
                         <Btn onClick={() => setMv({ item: i, kind: "waste" })}>Waste</Btn>
                         {manage && <Btn onClick={() => setMv({ item: i, kind: "adjust" })}>Adjust</Btn>}
                         <Btn onClick={() => setHist(i)} title="History"><History className="size-4" /></Btn>
@@ -170,6 +174,7 @@ function StockTab({ manage }: { manage: boolean }) {
       {edit && <ItemDialog item={edit === "new" ? null : edit} suppliers={suppliers ?? []} onClose={() => setEdit(null)} onSaved={() => { setEdit(null); reload(); }} />}
       {mv && <MoveDialog {...mv} onClose={() => setMv(null)} onSaved={() => { setMv(null); reload(); }} />}
       {hist && <HistoryDialog item={hist} onClose={() => setHist(null)} />}
+      {prep && <PrepDialog item={prep} stock={data?.items ?? []} manage={manage} onClose={() => setPrep(null)} onSaved={reload} />}
     </>
   );
 }
@@ -711,5 +716,103 @@ function ReportTab() {
         </>
       )}
     </>
+  );
+}
+
+/* ---------- Preparations (made in-house) ---------- */
+
+interface Prep {
+  is_prep: boolean; yield: number; unit: string; batch_cost: number; unit_cost: number;
+  lines: { stock_item_id: string; stock_item: string; qty: number; unit: string; cost: number; on_hand: number; stock_unit: string }[];
+}
+
+function PrepDialog({ item, stock, manage, onClose, onSaved }: { item: Stock; stock: Stock[]; manage: boolean; onClose: () => void; onSaved: () => void }) {
+  const { fmt } = usePos();
+  const { data, setData } = usePoll<Prep>(`/inventory/items/${item.id}/prep`, 0);
+  const [editing, setEditing] = useState(false);
+  const [yieldQty, setYield] = useState("");
+  const [lines, setLines] = useState<{ stock_item_id: string; qty: string; unit: string }[]>([]);
+  const [made, setMade] = useState("");
+  const others = stock.filter((s) => s.id !== item.id && s.active);
+  const startEdit = (p: Prep) => {
+    setYield(p.yield ? String(p.yield) : "");
+    setLines(p.lines.length ? p.lines.map((l) => ({ stock_item_id: l.stock_item_id, qty: String(l.qty), unit: l.unit })) : [{ stock_item_id: "", qty: "", unit: "g" }]);
+    setEditing(true);
+  };
+  const showEditor = editing || (data && !data.is_prep && manage);
+  useEffect(() => {
+    if (data && !data.is_prep && manage) { setYield(""); setLines([{ stock_item_id: "", qty: "", unit: "g" }]); setEditing(true); }
+  }, [data, manage]);
+
+  async function save() {
+    const body = { is_prep: true, yield_qty: Number(yieldQty) || 0, lines: lines.filter((l) => l.stock_item_id && Number(l.qty) > 0).map((l) => ({ ...l, qty: Number(l.qty) })) };
+    const r = await run(api<Prep>(`/inventory/items/${item.id}/prep`, { method: "PUT", body }), `${item.name} is made in-house`);
+    if (r) { setData(r); setEditing(false); onSaved(); }
+  }
+  async function stop() {
+    const r = await run(api<Prep>(`/inventory/items/${item.id}/prep`, { method: "PUT", body: { is_prep: false } }), `${item.name} is bought in again`);
+    if (r) { onSaved(); onClose(); }
+  }
+  async function make() {
+    const r = await run(api<{ batch_cost: number; warning: string }>(`/inventory/items/${item.id}/produce`, { body: { qty: Number(made) } }));
+    if (!r) return;
+    toast.success(`${n3(Number(made))} ${item.unit} of ${item.name} added · ingredients ${fmt(r.batch_cost)}`);
+    if (r.warning) toast.warning(r.warning);
+    onSaved(); onClose();
+  }
+
+  return (
+    <Dialog open onOpenChange={(o) => !o && onClose()}>
+      <DialogContent className="max-h-[90vh] gap-4 overflow-y-auto sm:max-w-xl">
+        <DialogHeader>
+          <DialogTitle className="text-xl">{item.name}</DialogTitle>
+          <DialogDescription>A preparation made in your kitchen (gravy base, dough, sauce). Making a batch takes its ingredients off stock and adds it at their cost, so dishes that use it get the right food cost.</DialogDescription>
+        </DialogHeader>
+        {!data ? <Empty>Loading…</Empty> : showEditor ? (
+          <div className="space-y-4">
+            <Field label={`One batch makes (${item.unit})`}><Input type="number" min={0} step="0.001" value={yieldQty} onChange={(e) => setYield(e.target.value)} className="h-10 w-40 font-mono" /></Field>
+            <div className="space-y-2">
+              <Label>Ingredients of one batch</Label>
+              {lines.map((l, k) => {
+                const s = others.find((x) => x.id === l.stock_item_id);
+                return (
+                  <div key={k} className="flex gap-2">
+                    <select value={l.stock_item_id} onChange={(e) => { const u = others.find((x) => x.id === e.target.value)?.unit ?? "g"; setLines(lines.map((x, j) => (j === k ? { ...x, stock_item_id: e.target.value, unit: u } : x))); }} className={cn(sel, "h-10 flex-1")}>
+                      <option value="">Pick stock item</option>
+                      {others.map((x) => <option key={x.id} value={x.id}>{x.name}</option>)}
+                    </select>
+                    <Input type="number" min={0} step="0.001" value={l.qty} onChange={(e) => setLines(lines.map((x, j) => (j === k ? { ...x, qty: e.target.value } : x)))} className="h-10 w-24 font-mono" />
+                    <select value={l.unit} onChange={(e) => setLines(lines.map((x, j) => (j === k ? { ...x, unit: e.target.value } : x)))} className={cn(sel, "h-10 w-20")}>
+                      {(s ? sameKind(s.unit) : ALL_UNITS).map((u) => <option key={u}>{u}</option>)}
+                    </select>
+                    <button type="button" onClick={() => setLines(lines.filter((_, j) => j !== k))} className="grid size-10 shrink-0 place-items-center rounded-lg bg-muted" aria-label="Remove"><Trash2 className="size-4" /></button>
+                  </div>
+                );
+              })}
+              <Btn onClick={() => setLines([...lines, { stock_item_id: "", qty: "", unit: "g" }])}><Plus className="size-4" />Ingredient</Btn>
+            </div>
+            <div className="flex gap-2">
+              {data.is_prep && <Btn onClick={() => setEditing(false)} className="h-11 px-4">Cancel</Btn>}
+              <Primary onClick={save} className="h-11 flex-1 justify-center">Save batch recipe</Primary>
+            </div>
+          </div>
+        ) : !data.is_prep ? <p className="text-sm text-muted-foreground">Not a preparation. Ask a manager to set up its batch recipe.</p> : (
+          <div className="space-y-4">
+            <div className="rounded-2xl bg-muted/60 p-4 text-sm">
+              <div className="flex justify-between font-medium"><span>One batch makes {n3(data.yield)} {data.unit}</span><span className="font-mono">{fmt(data.batch_cost)} · {fmt(data.unit_cost)}/{data.unit}</span></div>
+              <div className="mt-2 space-y-1">{data.lines.map((l) => (
+                <div key={l.stock_item_id} className="flex justify-between text-muted-foreground"><span>{n3(l.qty)} {l.unit} {l.stock_item}</span><span className="font-mono">{fmt(l.cost)}</span></div>
+              ))}</div>
+              {manage && <div className="mt-3 flex gap-3"><button onClick={() => startEdit(data)} className="text-sm font-medium hover:underline">Change recipe</button><button onClick={stop} className="text-sm text-muted-foreground hover:underline">Stop making it here</button></div>}
+            </div>
+            <div className="flex items-end gap-2">
+              <Field label={`Made just now (${item.unit})`}><Input type="number" min={0} step="0.001" value={made} onChange={(e) => setMade(e.target.value)} placeholder={String(data.yield)} className="h-11 w-40 font-mono" /></Field>
+              <Primary onClick={make} disabled={!(Number(made) > 0)} className="h-11"><PackagePlus className="size-4" />Add to stock</Primary>
+            </div>
+            {Number(made) > 0 && data.yield > 0 && <p className="text-xs text-muted-foreground">Uses {data.lines.map((l) => `${n3(l.qty * Number(made) / data.yield)} ${l.unit} ${l.stock_item}`).join(", ")}.</p>}
+          </div>
+        )}
+      </DialogContent>
+    </Dialog>
   );
 }

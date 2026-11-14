@@ -16,7 +16,7 @@ from sqlalchemy.orm import Session, selectinload
 from ..db import get_db
 from ..deps import PERMISSIONS, Ctx, needs, tenant_user
 from ..live import audit
-from ..models import (MenuCategory, MenuItem, ModifierGroup, PurchaseOrder, PurchaseOrderLine, RecipeLine, StockCount,
+from ..models import (MenuCategory, MenuItem, ModifierGroup, PrepLine, PurchaseOrder, PurchaseOrderLine, RecipeLine, StockCount,
                       StockItem, StockMovement, Supplier, User, now)
 from ..stock import (D, UNIT_PATTERN, UNITS, apply_movement, compatible, factor, from_base, sync_auto86, to_base)
 from .pos import money
@@ -51,7 +51,7 @@ def item_out(i: StockItem, suppliers: dict[str, str] | None = None, recipes: int
         "id": i.id, "name": i.name, "category": i.category, "unit": i.unit, "on_hand": q3(on_hand), "par_level": q3(par),
         "cost": money(cost), "value": money(D(i.on_hand) * D(i.avg_cost)), "low": D(i.on_hand) <= D(i.par_level),
         "out": D(i.on_hand) <= 0, "supplier_id": i.supplier_id, "supplier": (suppliers or {}).get(i.supplier_id or "", ""),
-        "active": i.active, "recipes": recipes,
+        "active": i.active, "recipes": recipes, "is_prep": i.is_prep,
     }
 
 
@@ -552,3 +552,104 @@ def report(start: date | None = None, end: date | None = None, ctx: Ctx = Depend
         "items": sorted(per.values(), key=lambda r: -r["used_value"]),
         "waste_reasons": sorted(waste_reasons, key=lambda r: -r["value"]),
     }
+
+
+# ---------- Preparations (made in-house) ----------
+
+def prep_out(i: StockItem, lines: list[PrepLine], stock: dict[str, StockItem]) -> dict:
+    """A preparation's batch: ingredients, what one batch yields and costs, and the cost per unit it makes."""
+    rows, cost = [], Decimal(0)
+    for ln in lines:
+        s = stock.get(ln.stock_item_id)
+        if not s:
+            continue
+        c = D(ln.qty) * D(s.avg_cost)
+        cost += c
+        rows.append({"stock_item_id": s.id, "stock_item": s.name, "qty": q3(from_base(ln.qty, ln.unit)), "unit": ln.unit,
+                     "cost": money(c), "on_hand": q3(from_base(s.on_hand, s.unit)), "stock_unit": s.unit})
+    yield_ = D(i.batch_yield)
+    return {"yield": q3(from_base(yield_, i.unit)), "unit": i.unit, "batch_cost": money(cost),
+            "unit_cost": money(cost / yield_ * factor(i.unit)) if yield_ else 0.0, "lines": rows}
+
+
+@router.get("/items/{iid}/prep")
+def get_prep(iid: str, ctx: Ctx = Depends(VIEW), db: Session = Depends(get_db)):
+    i = get_item(db, ctx, iid)
+    lines = list(db.scalars(select(PrepLine).where(PrepLine.prep_id == i.id, PrepLine.tenant_id == ctx.tenant_id)))
+    return {"is_prep": i.is_prep, **prep_out(i, lines, stock_map(db, ctx))}
+
+
+class PrepLineIn(BaseModel):
+    stock_item_id: str = Field(max_length=36)
+    qty: float = Field(gt=0, le=1e6)
+    unit: str = Field(pattern=UNIT_PATTERN)
+
+
+class PrepIn(BaseModel):
+    is_prep: bool = True
+    yield_qty: float = Field(default=0, ge=0, le=1e6)  # in the item's own unit
+    lines: list[PrepLineIn] = Field(default_factory=list, max_length=40)
+
+
+@router.put("/items/{iid}/prep")
+def save_prep(iid: str, body: PrepIn, ctx: Ctx = Depends(MANAGE), db: Session = Depends(get_db)):
+    """Mark a stock item as made in-house and set the ingredients of one batch."""
+    i = get_item(db, ctx, iid)
+    stock = stock_map(db, ctx)
+    if body.is_prep:
+        if body.yield_qty <= 0:
+            raise HTTPException(422, f"Say how much one batch makes, in {i.unit}")
+        if not body.lines:
+            raise HTTPException(422, "Add the ingredients of one batch")
+    for old in db.scalars(select(PrepLine).where(PrepLine.prep_id == i.id, PrepLine.tenant_id == ctx.tenant_id)):
+        db.delete(old)
+    if body.is_prep:
+        for ln in body.lines:
+            s = stock.get(ln.stock_item_id)
+            if not s:
+                raise HTTPException(404, "Stock item not found")
+            if s.id == i.id:
+                raise HTTPException(422, "A preparation can't use itself")
+            if s.is_prep and db.scalar(select(PrepLine.id).where(PrepLine.prep_id == s.id, PrepLine.stock_item_id == i.id)):
+                raise HTTPException(422, f"{s.name} is made from {i.name}; it can't go the other way too")
+            if not compatible(ln.unit, s.unit):
+                raise HTTPException(422, f"{s.name} is measured in {s.unit}; use a unit of the same kind")
+            db.add(PrepLine(tenant_id=ctx.tenant_id, prep_id=i.id, stock_item_id=s.id, qty=to_base(ln.qty, ln.unit), unit=ln.unit))
+    i.is_prep = body.is_prep
+    i.batch_yield = to_base(body.yield_qty, i.unit) if body.is_prep else Decimal(0)
+    db.commit()
+    return get_prep(iid, ctx, db)
+
+
+class ProduceIn(BaseModel):
+    qty: float = Field(gt=0, le=1e6)  # how much was made, in the item's unit
+    note: str = Field(default="", max_length=200)
+
+
+@router.post("/items/{iid}/produce")
+def produce(iid: str, body: ProduceIn, ctx: Ctx = Depends(VIEW), db: Session = Depends(get_db)):
+    """Record a batch made in the kitchen: its ingredients come off stock and the preparation goes on, at their cost."""
+    i = get_item(db, ctx, iid)
+    if not i.is_prep or not D(i.batch_yield):
+        raise HTTPException(409, f"{i.name} isn't set up as a preparation")
+    made = to_base(body.qty, i.unit)
+    batches = made / D(i.batch_yield)
+    stock = stock_map(db, ctx)
+    cost, touched, short = Decimal(0), {i.id}, []
+    for ln in db.scalars(select(PrepLine).where(PrepLine.prep_id == i.id, PrepLine.tenant_id == ctx.tenant_id)):
+        s = stock.get(ln.stock_item_id)
+        if not s:
+            continue
+        use = (D(ln.qty) * batches).quantize(Decimal("0.0001"))
+        if D(s.on_hand) < use:
+            short.append(s.name)
+        cost += use * D(s.avg_cost)
+        apply_movement(db, s, "prep_use", -use, user_id=ctx.user.id, ref_id=i.id, reason=f"Made {q3(from_base(made, i.unit))} {i.unit} {i.name}")
+        touched.add(s.id)
+    apply_movement(db, i, "produced", made, unit_cost=(cost / made) if made else Decimal(0), user_id=ctx.user.id,
+                   reason=body.note.strip() or "Batch made")
+    audit(db, ctx, "stock_produced", detail=f"{i.name}: +{q3(from_base(made, i.unit))} {i.unit}", amount=money(cost))
+    sync_auto86(db, ctx.tenant_id, touched)
+    db.commit()
+    return {**item_out(i, supplier_names(db, ctx)), "batch_cost": money(cost),
+            "warning": f"Stock went below zero for {', '.join(short)}: check the counts" if short else ""}

@@ -43,6 +43,10 @@ COLUMNS: dict[str, list[tuple[str, str, str | None]]] = {
         ("loyalty_min_redeem", "INTEGER NOT NULL DEFAULT 100", None),
         ("delivery_fee", "NUMERIC(10,2) NOT NULL DEFAULT 0", None),
     ],
+    "stock_items": [
+        ("is_prep", "BOOLEAN NOT NULL DEFAULT FALSE", None),
+        ("batch_yield", "NUMERIC(18,4) NOT NULL DEFAULT 0", None),
+    ],
     "users": [
         ("hourly_rate", "NUMERIC(10,2) NOT NULL DEFAULT 0", None),
     ],
