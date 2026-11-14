@@ -96,6 +96,11 @@ class MenuItem(Base):
     station: Mapped[str] = mapped_column(String(40), default="Kitchen")
     available: Mapped[bool] = mapped_column(Boolean, default=True)
     sort: Mapped[int] = mapped_column(Integer, default=0)
+    # Guest-facing details: shown on the QR menu and the item card
+    description: Mapped[str] = mapped_column(Text, default="")
+    tags: Mapped[list] = mapped_column(JSON, default=list)  # dietary / cuisine labels: ["Vegan", "Spicy", "South Indian"]
+    allergens: Mapped[list] = mapped_column(JSON, default=list)  # keys from backoffice.ALLERGENS
+    nutrition: Mapped[dict] = mapped_column(JSON, default=dict)  # {"kcal", "protein", "carbs", "fat"} per serving
 
 
 class DiningTable(Base):

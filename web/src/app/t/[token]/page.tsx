@@ -5,12 +5,16 @@ import { useParams } from "next/navigation";
 import { BellRing, Check, Minus, Plus, ReceiptText, ShoppingBag, X } from "lucide-react";
 import { api, money } from "@/lib/api";
 import { cn } from "@/lib/utils";
+import { allergenList, nutritionLine, type Nutrition } from "@/lib/menu";
 
 /* Guest page for a table's QR code: menu, the table's check, order more, call a waiter, ask for the bill. */
 
 interface Opt { id: string; name: string; price: number }
 interface Group { id: string; name: string; min: number; max: number; options: Opt[] }
-interface Item { id: string; name: string; price: number; is_veg: boolean; modifiers: Group[] }
+interface Item {
+  id: string; name: string; price: number; is_veg: boolean; modifiers: Group[];
+  description?: string; tags?: string[]; allergens?: string[]; nutrition?: Nutrition;
+}
 interface Cat { id: string; name: string; items: Item[] }
 interface CheckLine { name: string; qty: number; modifiers: string[]; note: string; line_total: number; sent: boolean; done: boolean }
 interface Check { number: number; subtotal: number; discount: number; tax: number; due: number; paid: number; balance: number; items: CheckLine[] }
@@ -147,7 +151,12 @@ export default function GuestTable() {
             </span>
             <div className="min-w-0 flex-1">
               <div className="font-medium">{i.name}</div>
-              <div className="text-sm text-muted-foreground">{fmt(i.price)}{i.modifiers.length ? " · options" : ""}</div>
+              {!!i.tags?.length && (
+                <div className="mt-0.5 flex flex-wrap gap-1">{i.tags.slice(0, 3).map((t) => <span key={t} className="rounded-full bg-muted px-2 text-[11px] font-medium text-muted-foreground">{t}</span>)}</div>
+              )}
+              {i.description && <p className="mt-0.5 line-clamp-2 text-xs text-muted-foreground">{i.description}</p>}
+              <div className="text-sm text-muted-foreground">{fmt(i.price)}{i.modifiers.length ? " · options" : ""}{nutritionLine(i.nutrition) ? ` · ${nutritionLine(i.nutrition)}` : ""}</div>
+              {!!i.allergens?.length && <div className="text-[11px] text-chili">Contains {allergenList(i.allergens)}</div>}
             </div>
             <button onClick={() => (i.modifiers.length ? setPick(i) : add(i))} aria-label={`Add ${i.name}`}
               className="grid size-10 shrink-0 place-items-center rounded-xl bg-foreground text-background"><Plus className="size-5" /></button>

@@ -71,6 +71,12 @@ COLUMNS: dict[str, list[tuple[str, str, str | None]]] = {
         ("details", "JSON NOT NULL DEFAULT '{}'", None),
         ("custom_fields", "JSON NOT NULL DEFAULT '[]'", None),
     ],
+    "menu_items": [
+        ("description", "TEXT NOT NULL DEFAULT ''", None),
+        ("tags", "JSON NOT NULL DEFAULT '[]'", None),
+        ("allergens", "JSON NOT NULL DEFAULT '[]'", None),
+        ("nutrition", "JSON NOT NULL DEFAULT '{}'", None),
+    ],
     "menu_categories": [
         ("phase", "VARCHAR(12) NOT NULL DEFAULT ''", None),
     ],

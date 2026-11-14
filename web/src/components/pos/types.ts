@@ -1,8 +1,11 @@
+import type { Nutrition } from "@/lib/menu";
+
 export interface ModOption { id: string; name: string; price: number }
 export interface ModGroup { id: string; name: string; min: number; max: number; options: ModOption[] }
 export interface MenuItem {
   id: string; category_id: string; name: string; price: number; is_veg: boolean; station: string; available: boolean;
   modifiers: ModGroup[];
+  description?: string; tags?: string[]; allergens?: string[]; nutrition?: Nutrition;
 }
 export interface Category { id: string; name: string; phase: string; phase_set: boolean; items: MenuItem[] }
 

@@ -6,6 +6,8 @@ import { ListPlus, Plus, ScanText, Trash2, X } from "lucide-react";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { Textarea } from "@/components/ui/textarea";
+import { ALLERGEN_LABEL, NUTRIENTS, SUGGESTED_TAGS, allergenList } from "@/lib/menu";
 import { api, can, hasModule } from "@/lib/api";
 import { cn } from "@/lib/utils";
 import { NativeSelect } from "@/components/auth-shell";
@@ -43,7 +45,11 @@ export function MenuAdmin() {
 
   async function save() {
     if (!sel) return;
-    const body = { name: sel.name, price: sel.price, is_veg: sel.is_veg, station: sel.station, category_id: sel.category_id, available: sel.available };
+    const body = {
+      name: sel.name, price: sel.price, is_veg: sel.is_veg, station: sel.station, category_id: sel.category_id, available: sel.available,
+      description: sel.description ?? "", tags: sel.tags ?? [], allergens: sel.allergens ?? [],
+      nutrition: Object.fromEntries(Object.entries(sel.nutrition ?? {}).filter(([, v]) => v != null && !Number.isNaN(v))),
+    };
     const r = sel.id ? await run(api(`/menu/items/${sel.id}`, { method: "PATCH", body }), `${sel.name} published`)
       : await run(api("/menu/items", { body }), `${sel.name} added to the menu`);
     if (r) { setSel(null); reload(); }
@@ -106,8 +112,10 @@ export function MenuAdmin() {
           {cur?.items.map((m) => (
             <div key={m.id} onClick={() => setSel({ ...m })} role="button"
               className={cn("grid cursor-pointer grid-cols-[1fr_90px_90px_60px] items-center gap-3 border-b border-border/60 px-5 py-3.5 last:border-0 hover:bg-muted/40", sel?.id === m.id && "bg-accent/60")}>
-              <span className="flex items-center gap-2.5 font-medium"><VegDot veg={m.is_veg} />{m.name}
-                {m.modifiers.length > 0 && <span className="rounded bg-accent px-1.5 text-[11px] font-medium text-accent-foreground">{m.modifiers.length} option set{m.modifiers.length > 1 ? "s" : ""}</span>}</span>
+              <span className="flex flex-wrap items-center gap-x-2.5 gap-y-1 font-medium"><VegDot veg={m.is_veg} />{m.name}
+                {m.modifiers.length > 0 && <span className="rounded bg-accent px-1.5 text-[11px] font-medium text-accent-foreground">{m.modifiers.length} option set{m.modifiers.length > 1 ? "s" : ""}</span>}
+                {!!m.allergens?.length && <span title={`Contains ${allergenList(m.allergens)}`} className="rounded bg-chili/10 px-1.5 text-[11px] font-medium text-chili">{m.allergens.length} allergen{m.allergens.length > 1 ? "s" : ""}</span>}
+                {m.tags?.slice(0, 2).map((t) => <span key={t} className="rounded bg-muted px-1.5 text-[11px] font-medium text-muted-foreground">{t}</span>)}</span>
               <span className="font-mono text-sm">{fmt(m.price)}</span>
               <span className="text-sm text-muted-foreground">{m.station}</span>
               <button onClick={(e) => { e.stopPropagation(); toggle(m); }} aria-label="Toggle availability"
@@ -157,6 +165,7 @@ export function MenuAdmin() {
                   </button>
                 ))}
               </div>
+              <GuestDetails item={sel} onChange={(p) => setSel({ ...sel, ...p })} />
             </fieldset>
             {sel.id && (
               <div className="space-y-2 rounded-2xl bg-muted/60 p-4">
@@ -185,6 +194,67 @@ export function MenuAdmin() {
           </div>
         )}
       </aside>
+    </div>
+  );
+}
+
+/* ---------------- Guest details (description, tags, allergens, nutrition) ---------------- */
+
+function GuestDetails({ item, onChange }: { item: MenuItem; onChange: (p: Partial<MenuItem>) => void }) {
+  const [tag, setTag] = useState("");
+  const tags = item.tags ?? [];
+  const allergens = item.allergens ?? [];
+  const addTag = (t: string) => {
+    const v = t.trim();
+    if (v && !tags.some((x) => x.toLowerCase() === v.toLowerCase()) && tags.length < 12) onChange({ tags: [...tags, v] });
+    setTag("");
+  };
+  return (
+    <div className="space-y-4 rounded-2xl bg-muted/60 p-4">
+      <div>
+        <div className="font-medium">Guest details</div>
+        <p className="text-xs text-muted-foreground">Shown on the QR menu and to staff when they take the order.</p>
+      </div>
+      <div className="space-y-2"><Label>Description</Label>
+        <Textarea value={item.description ?? ""} maxLength={600} rows={2} placeholder="Slow-cooked black lentils, butter, cream"
+          onChange={(e) => onChange({ description: e.target.value })} className="bg-card" /></div>
+      <div className="space-y-2">
+        <Label>Tags</Label>
+        <div className="flex flex-wrap gap-1.5">
+          {tags.map((t) => (
+            <button type="button" key={t} onClick={() => onChange({ tags: tags.filter((x) => x !== t) })}
+              className="flex items-center gap-1 rounded-full bg-foreground px-2.5 py-1 text-xs font-medium text-background">{t}<X className="size-3" /></button>
+          ))}
+          {SUGGESTED_TAGS.filter((t) => !tags.includes(t)).slice(0, 6).map((t) => (
+            <button type="button" key={t} onClick={() => addTag(t)} className="rounded-full bg-card px-2.5 py-1 text-xs ring-1 ring-border">+ {t}</button>
+          ))}
+        </div>
+        <Input value={tag} onChange={(e) => setTag(e.target.value)} maxLength={30} placeholder="Add a tag, e.g. South Indian"
+          onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); addTag(tag); } }} onBlur={() => tag && addTag(tag)} className="h-9 bg-card" />
+      </div>
+      <div className="space-y-2">
+        <Label>Allergens</Label>
+        <div className="flex flex-wrap gap-1.5">
+          {Object.entries(ALLERGEN_LABEL).map(([k, l]) => {
+            const on = allergens.includes(k);
+            return (
+              <button type="button" key={k} onClick={() => onChange({ allergens: on ? allergens.filter((x) => x !== k) : [...allergens, k] })}
+                className={cn("rounded-full px-2.5 py-1 text-xs ring-1", on ? "bg-chili text-white ring-chili" : "bg-card ring-border")}>{l}</button>
+            );
+          })}
+        </div>
+      </div>
+      <div className="space-y-2">
+        <Label>Nutrition per serving</Label>
+        <div className="grid grid-cols-4 gap-2">
+          {NUTRIENTS.map(({ k, l, unit }) => (
+            <label key={k} className="space-y-1 text-[11px] text-muted-foreground">{l} ({unit})
+              <Input type="number" min={0} step="0.1" value={item.nutrition?.[k] ?? ""} className="h-9 bg-card font-mono text-sm"
+                onChange={(e) => onChange({ nutrition: { ...item.nutrition, [k]: e.target.value === "" ? undefined : Number(e.target.value) } })} />
+            </label>
+          ))}
+        </div>
+      </div>
     </div>
   );
 }

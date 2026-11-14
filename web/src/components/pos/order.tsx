@@ -11,6 +11,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { api, can } from "@/lib/api";
 import { cn } from "@/lib/utils";
+import { allergenList, nutritionLine } from "@/lib/menu";
 import { printKot } from "./print";
 import { openDrawer, printOrder } from "./print-host";
 import { Empty, Live, METHOD_LABEL, Seg, VegDot, orderTitle, payMethods, round2, run, usePoll, usePos } from "./shared";
@@ -151,6 +152,11 @@ export function OrderScreen() {
                 className={cn("relative flex min-h-28 flex-col rounded-2xl border bg-card p-4 text-left transition active:scale-[0.98]",
                   n ? "border-foreground" : "border-border hover:border-foreground/30", !m.available && "opacity-45")}>
                 <div className="flex items-start gap-2"><VegDot veg={m.is_veg} /><span className="text-[14.5px] font-medium leading-snug">{m.name}</span></div>
+                {(!!m.allergens?.length || !!m.tags?.length) && (
+                  <div className="mt-1 truncate text-[11px] text-muted-foreground" title={m.allergens?.length ? `Contains ${allergenList(m.allergens)}` : undefined}>
+                    {[...(m.tags ?? []).slice(0, 2), m.allergens?.length ? `⚠ ${allergenList(m.allergens)}` : ""].filter(Boolean).join(" · ")}
+                  </div>
+                )}
                 <div className="mt-auto flex items-end justify-between pt-3">
                   <span className="font-mono text-sm text-muted-foreground">
                     {m.available ? fmt(m.price) : "86'd"}
@@ -330,7 +336,10 @@ function ModifierDialog({ item, onClose, onAdd }: { item: MenuItem; onClose: () 
       <DialogContent className="max-h-[90vh] gap-5 overflow-y-auto sm:max-w-lg">
         <DialogHeader>
           <DialogTitle className="text-xl">{item.name}</DialogTitle>
-          <DialogDescription>{fmt(item.price)} · choose options</DialogDescription>
+          <DialogDescription>{fmt(item.price)} · choose options{item.description ? ` · ${item.description}` : ""}</DialogDescription>
+          {(!!item.allergens?.length || !!item.nutrition && !!nutritionLine(item.nutrition)) && (
+            <p className="text-xs text-muted-foreground">{[item.allergens?.length ? `Contains ${allergenList(item.allergens)}` : "", nutritionLine(item.nutrition)].filter(Boolean).join(" · ")}</p>
+          )}
         </DialogHeader>
         {item.modifiers.map((g) => {
           const n = g.options.filter((o) => picked.has(o.id)).length;

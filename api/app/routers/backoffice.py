@@ -27,9 +27,16 @@ def group_out(g: ModifierGroup) -> dict:
             "options": [{"id": o.id, "name": o.name, "price": money(o.price)} for o in g.options]}
 
 
+ALLERGENS = ("gluten", "milk", "eggs", "peanuts", "tree_nuts", "soy", "sesame", "mustard", "fish", "crustaceans",
+             "molluscs", "celery", "sulphites", "lupin")
+NUTRIENTS = ("kcal", "protein", "carbs", "fat")
+
+
 def item_out(m: MenuItem, groups: list[ModifierGroup] | None = None) -> dict:
     return {"id": m.id, "category_id": m.category_id, "name": m.name, "price": money(m.price),
             "is_veg": m.is_veg, "station": m.station, "available": m.available,
+            "description": m.description or "", "tags": m.tags or [], "allergens": m.allergens or [],
+            "nutrition": m.nutrition or {},
             "modifiers": [group_out(g) for g in (groups or [])]}
 
 
@@ -92,6 +99,10 @@ class ItemIn(BaseModel):
     is_veg: bool = True
     station: str = Field(default="Kitchen", max_length=40)
     available: bool = True
+    description: str = Field(default="", max_length=600)
+    tags: list[str] = Field(default_factory=list, max_length=12)
+    allergens: list[str] = Field(default_factory=list, max_length=14)
+    nutrition: dict[str, float] = Field(default_factory=dict)
 
 
 class ItemPatch(BaseModel):
@@ -101,6 +112,40 @@ class ItemPatch(BaseModel):
     is_veg: bool | None = None
     station: str | None = Field(default=None, max_length=40)
     available: bool | None = None
+    description: str | None = Field(default=None, max_length=600)
+    tags: list[str] | None = Field(default=None, max_length=12)
+    allergens: list[str] | None = Field(default=None, max_length=14)
+    nutrition: dict[str, float] | None = None
+
+
+def clean_details(data: dict) -> dict:
+    """Normalise the guest-facing fields: trimmed unique tags, known allergens, non-negative nutrients."""
+    if data.get("description") is not None:
+        data["description"] = data["description"].strip()
+    if data.get("tags") is not None:
+        seen, tags = set(), []
+        for t in data["tags"]:
+            t = t.strip()[:30]
+            if t and t.lower() not in seen:
+                seen.add(t.lower())
+                tags.append(t)
+        data["tags"] = tags
+    if data.get("allergens") is not None:
+        bad = set(data["allergens"]) - set(ALLERGENS)
+        if bad:
+            raise HTTPException(422, "Unknown allergen: " + ", ".join(sorted(bad)))
+        data["allergens"] = [a for a in ALLERGENS if a in data["allergens"]]
+    if data.get("nutrition") is not None:
+        n = {}
+        for k, v in data["nutrition"].items():
+            if k not in NUTRIENTS:
+                raise HTTPException(422, f"Unknown nutrient: {k}")
+            if v is not None and not (0 <= v <= 100000):
+                raise HTTPException(422, f"{k} is out of range")
+            if v is not None:
+                n[k] = round(float(v), 1)
+        data["nutrition"] = n
+    return {k: v for k, v in data.items() if v is not None or k not in ("description", "tags", "allergens", "nutrition")}
 
 
 def own_category(db: Session, ctx: Ctx, cid: str) -> None:
@@ -111,7 +156,7 @@ def own_category(db: Session, ctx: Ctx, cid: str) -> None:
 @router.post("/menu/items", status_code=201)
 def add_item(body: ItemIn, ctx: Ctx = Depends(require("menu_edit")), db: Session = Depends(get_db)):
     own_category(db, ctx, body.category_id)
-    m = MenuItem(tenant_id=ctx.tenant_id, **body.model_dump(exclude={"price"}), price=Decimal(str(body.price)))
+    m = MenuItem(tenant_id=ctx.tenant_id, **clean_details(body.model_dump(exclude={"price"})), price=Decimal(str(body.price)))
     db.add(m)
     db.commit()
     return item_out(m)
@@ -127,7 +172,7 @@ def own_item(db: Session, ctx: Ctx, iid: str) -> MenuItem:
 @router.patch("/menu/items/{iid}")
 def edit_item(iid: str, body: ItemPatch, ctx: Ctx = Depends(require("menu_edit")), db: Session = Depends(get_db)):
     m = own_item(db, ctx, iid)
-    data = body.model_dump(exclude_unset=True)
+    data = clean_details(body.model_dump(exclude_unset=True))
     if "category_id" in data:
         own_category(db, ctx, data["category_id"])
     if "price" in data:

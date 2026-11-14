@@ -194,7 +194,9 @@ def copy_menu(db: Session, src: Tenant, dst: Tenant, mode: str) -> dict:
         d = dst_items.get(m.name.lower())
         if d is None:
             d = MenuItem(tenant_id=dst.id, category_id=cat_map[m.category_id].id, name=m.name, price=m.price,
-                         is_veg=m.is_veg, station=m.station, available=m.available, sort=m.sort)
+                         is_veg=m.is_veg, station=m.station, available=m.available, sort=m.sort,
+                         description=m.description, tags=list(m.tags or []), allergens=list(m.allergens or []),
+                         nutrition=dict(m.nutrition or {}))
             db.add(d)
             db.flush()
             for g in src_groups.get(m.id, []):
