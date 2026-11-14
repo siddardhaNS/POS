@@ -122,6 +122,7 @@ export function OrdersScreen() {
               <div className="space-y-1 border-t border-dashed border-border pt-3 text-muted-foreground">
                 <div className="flex justify-between"><span>Subtotal</span><span className="font-mono">{fmt(sel.subtotal)}</span></div>
                 {sel.discount.amount > 0 && <div className="flex justify-between text-saffron-deep"><span>Discount · {sel.discount.reason}</span><span className="font-mono">−{fmt(sel.discount.amount)}</span></div>}
+                {sel.promotion && <div className="flex justify-between text-saffron-deep"><span>Offer · {sel.promotion.name}</span><span className="font-mono">−{fmt(sel.promotion.amount)}</span></div>}
                 {taxLines(sel, s.tenant?.tax_label || "Tax").map(([l, v]) => <div key={l} className="flex justify-between"><span>{l}</span><span className="font-mono">{fmt(v)}</span></div>)}
                 {sel.tip > 0 && <div className="flex justify-between"><span>Tips</span><span className="font-mono">{fmt(sel.tip)}</span></div>}
                 <div className="flex justify-between pt-1 text-base font-semibold text-foreground"><span>Total</span><span className="font-mono">{fmt(sel.total)}</span></div>

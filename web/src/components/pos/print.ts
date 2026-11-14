@@ -63,6 +63,7 @@ export function printReceipt(o: Order, t: Tenant | null | undefined, fmt: (v: nu
     <hr>${lines}<hr>
     <div class="r"><span>Subtotal</span><span>${fmt(o.subtotal)}</span></div>
     ${o.discount.amount ? `<div class="r"><span>Discount${o.discount.reason ? ` (${esc(o.discount.reason)})` : ""}</span><span>−${fmt(o.discount.amount)}</span></div>` : ""}
+    ${o.promotion ? `<div class="r"><span>Offer (${esc(o.promotion.name)})</span><span>−${fmt(o.promotion.amount)}</span></div>` : ""}
     ${taxLines(o, t?.tax_label || "Tax").map(([l, v]) => `<div class="r"><span>${esc(l)}</span><span>${fmt(v)}</span></div>`).join("")}
     ${o.tip ? `<div class="r"><span>Tip</span><span>${fmt(o.tip)}</span></div>` : ""}
     <div class="r b huge"><span>Total</span><span>${fmt(o.due + o.tip)}</span></div>

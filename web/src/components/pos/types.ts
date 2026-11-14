@@ -41,7 +41,8 @@ export interface Order {
   due: number; paid: number; refunded: number; balance: number; payment_method: string; void_reason: string;
   opened_at: string; closed_at: string | null; items: Line[]; payments: PaymentRow[]; change?: number;
   credit_notes?: CreditNote[];
-  customer_gstin?: string; invoice_no?: string;
+  customer_gstin?: string; invoice_no?: string; customer_id?: string | null;
+  promotion?: { id: string; name: string; amount: number } | null;
   tax_breakdown?: TaxPart[];
 }
 export interface TaxPart { name: string; rate: number; taxable: number; tax: number }

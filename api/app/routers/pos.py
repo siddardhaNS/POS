@@ -13,7 +13,7 @@ from sqlalchemy.orm import Session, selectinload
 from ..db import get_db
 from ..deps import PERMISSIONS, Ctx, has_module, needs, require
 from ..live import ALL_TOPICS, audit
-from .. import crm, menurules, phases, taxes
+from .. import crm, menurules, phases, promo, taxes
 from ..models import CreditNote, DiningTable, Kot, LiveRev, MenuCategory, MenuItem, ModifierGroup, Order, OrderItem, Payment, ServiceRequest, Tenant, now
 from ..stock import deduct_for_order
 
@@ -51,6 +51,7 @@ def recompute(o: Order, tax_rate: Decimal) -> None:
         disc = min(Decimal(o.discount_value or 0), sub)
     else:
         disc = Decimal(0)
+    disc = min(disc + Decimal(o.promotion_amount or 0), sub)  # an offer stacks with a manual discount
     o.subtotal, o.discount_amount = q(sub), q(disc)
     o.tax = taxes.order_tax(o, tax_rate, line_total)  # per line: dishes can sit in different tax classes
     o.tip = q(sum((p.tip for p in o.payments if p.kind == "payment"), Decimal(0)))
@@ -80,8 +81,9 @@ def order_out(o: Order) -> dict:
         "customer_phone": o.customer_phone, "customer_gstin": o.customer_gstin, "customer_id": o.customer_id, "guests": o.guests, "invoice_no": o.invoice_no,
         "tax_breakdown": taxes.breakdown(o, o.tenant.tax_rate, o.tenant.tax_label, line_total) if o.items else [],
         "subtotal": money(o.subtotal), "tax": money(o.tax), "tip": money(o.tip), "total": money(o.total),
-        "discount": {"kind": o.discount_kind, "value": money(o.discount_value), "amount": money(o.discount_amount),
-                     "reason": o.discount_reason},
+        "discount": {"kind": o.discount_kind, "value": money(o.discount_value),
+                     "amount": money(Decimal(o.discount_amount or 0) - Decimal(o.promotion_amount or 0)), "reason": o.discount_reason},
+        "promotion": {"id": o.promotion_id, "name": o.promotion_name, "amount": money(o.promotion_amount)} if o.promotion_id else None,
         "due": money(due(o)), "paid": money(o.paid), "refunded": money(o.refunded), "balance": money(balance(o)),
         "payment_method": o.payment_method, "void_reason": o.void_reason,
         "opened_at": o.opened_at.isoformat(), "closed_at": o.closed_at.isoformat() if o.closed_at else None,
@@ -116,9 +118,16 @@ def next_number(db: Session, model, tenant_id: str) -> int:
     return (db.scalar(select(func.max(model.number)).where(model.tenant_id == tenant_id)) or 0) + 1
 
 
-def save(db: Session, ctx: Ctx, o: Order) -> dict:
+def settle(db: Session, tenant: Tenant, o: Order) -> None:
+    """Totals, then the offer for the new subtotal, then totals again with it."""
     db.flush()
-    recompute(o, ctx.tenant.tax_rate)
+    recompute(o, tenant.tax_rate)
+    promo.refresh(db, tenant, o, Decimal(o.subtotal))
+    recompute(o, tenant.tax_rate)
+
+
+def save(db: Session, ctx: Ctx, o: Order) -> dict:
+    settle(db, ctx.tenant, o)
     db.commit()
     return order_out(load_order(db, ctx, o.id))
 
@@ -593,6 +602,8 @@ def take_payment(db: Session, ctx: Ctx, o: Order, body: PaymentIn) -> dict:
         raise HTTPException(409, "This check is already closed")
     if not o.items:
         raise HTTPException(409, "Nothing to pay for")
+    if not o.paid:  # first payment: make sure the offer and totals are current
+        settle(db, ctx.tenant, o)
     if balance(o) <= CENT / 2:  # fully comped or discounted: nothing to collect, just close it
         o.status, o.closed_at, o.payment_method = "paid", now(), o.payment_method or "comp"
         taxes.assign_invoice(db, ctx.tenant, o, o.closed_at)
@@ -642,6 +653,8 @@ class PayIn(BaseModel):
 def pay(oid: str, body: PayIn, ctx: Ctx = Depends(require("pay")), db: Session = Depends(get_db)):
     """Pay the whole remaining balance with one method."""
     o = load_order(db, ctx, oid)
+    if o.status == "open" and not o.paid:
+        settle(db, ctx.tenant, o)
     return take_payment(db, ctx, o, PaymentIn(method=body.method, amount=max(money(balance(o)), 0.01), tip=body.tip))
 
 

@@ -5,7 +5,7 @@ import { toast } from "sonner";
 import { api, money, type Session, type Tenant } from "@/lib/api";
 import { cn } from "@/lib/utils";
 
-export type Screen = "floor" | "order" | "orders" | "cash" | "online" | "kds" | "dash" | "menu" | "staff" | "settings" | "audit" | "floorplan" | "inventory" | "timesheets" | "locations" | "reservations" | "customers";
+export type Screen = "floor" | "order" | "orders" | "cash" | "online" | "kds" | "dash" | "menu" | "staff" | "settings" | "audit" | "floorplan" | "inventory" | "timesheets" | "locations" | "reservations" | "customers" | "offers";
 
 export interface PosCtx {
   s: Session;

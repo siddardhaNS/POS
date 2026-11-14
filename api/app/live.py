@@ -11,7 +11,7 @@ from sqlalchemy import event, text
 
 from .db import SessionLocal
 from .models import (AuditLog, CashMovement, CashSession, Customer, DiningTable, FloorSection, Kot, MenuCategory, MenuItem, ModifierGroup,
-                     ModifierOption, Order, OrderItem, Payment, PriceList, PriceListItem, Printer, PrintJob, PurchaseOrder, RecipeLine, StockCount,
+                     ModifierOption, Order, OrderItem, Payment, PriceList, PriceListItem, Promotion, Printer, PrintJob, PurchaseOrder, RecipeLine, StockCount,
                      Reservation, ServiceRequest, StockItem, StockMovement, Supplier, TimeBreak, TimeEntry)
 
 TOPICS: dict[type, tuple[str, ...]] = {
@@ -31,6 +31,7 @@ TOPICS: dict[type, tuple[str, ...]] = {
     ModifierGroup: ("menu",),
     ModifierOption: ("menu",),
     PriceList: ("menu",),
+    Promotion: ("menu",),
     PriceListItem: ("menu",),
     AuditLog: ("audit",),
     Printer: ("print",),

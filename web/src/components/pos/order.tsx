@@ -3,7 +3,7 @@
 import { useContext, useEffect, useMemo, useState } from "react";
 import { toast } from "sonner";
 import {
-  ArrowLeft, ArrowRightLeft, Ban, Banknote, Check, ChefHat, CircleCheck, CreditCard, Gift, Merge, Minus, MoreHorizontal, Percent,
+  ArrowLeft, ArrowRightLeft, BadgePercent, Ban, Banknote, Check, ChefHat, CircleCheck, CreditCard, Gift, Merge, Minus, MoreHorizontal, Percent,
   Plus, Printer, QrCode, Search, Smartphone, Trash2, Users, Wallet,
 } from "lucide-react";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
@@ -13,6 +13,7 @@ import { api, can } from "@/lib/api";
 import { cn } from "@/lib/utils";
 import { allergenList, menuChannel, nutritionLine } from "@/lib/menu";
 import { printKot } from "./print";
+import { CheckOffersDialog } from "./offers";
 import { openDrawer, printOrder } from "./print-host";
 import { Empty, Live, METHOD_LABEL, Seg, VegDot, orderTitle, payMethods, round2, run, usePoll, usePos } from "./shared";
 import { taxLines, type Category, type KotPrint, type Line, type MenuItem, type Order, type TableRow } from "./types";
@@ -56,7 +57,7 @@ export function OrderScreen() {
   const [paying, setPaying] = useState(payNow);
   const [custom, setCustom] = useState<MenuItem | null>(null);
   const [line, setLine] = useState<Line | null>(null);
-  const [dialog, setDialog] = useState<null | "discount" | "move" | "merge" | "guests" | "void" | "send">(null);
+  const [dialog, setDialog] = useState<null | "discount" | "move" | "merge" | "guests" | "void" | "send" | "offers">(null);
   const [more, setMore] = useState(false);
   const [course, setCourse] = useState(1);
   const [seat, setSeat] = useState(0);
@@ -126,6 +127,7 @@ export function OrderScreen() {
     { k: "guests", l: "Guests & customer", icon: Users, show: true },
     { k: "move", l: order.table ? "Move to table" : "Seat at a table", icon: ArrowRightLeft, show: true },
     { k: "merge", l: "Merge another check", icon: Merge, show: true },
+    { k: "offers", l: "Offers & codes", icon: BadgePercent, show: canPay },
     { k: "discount", l: "Discount", icon: Percent, show: canDiscount },
     { k: "print", l: "Print bill", icon: Printer, show: order.items.length > 0 },
     { k: "void", l: "Void check", icon: Ban, show: canPay && !order.paid },
@@ -279,6 +281,7 @@ export function OrderScreen() {
         <div className="space-y-1.5 border-t border-border px-5 py-4 text-sm">
           <Row l="Subtotal" v={fmt(order.subtotal)} />
           {order.discount.amount > 0 && <Row l={`Discount · ${order.discount.kind === "percent" ? `${order.discount.value}%` : "fixed"} · ${order.discount.reason}`} v={`−${fmt(order.discount.amount)}`} accent />}
+          {order.promotion && <Row l={`Offer · ${order.promotion.name}`} v={`−${fmt(order.promotion.amount)}`} accent />}
           {taxLines(order, s.tenant?.tax_label || "Tax").map(([l, v]) => <Row key={l} l={l} v={fmt(v)} />)}
           {order.paid > 0 && <Row l="Paid so far" v={`−${fmt(order.paid)}`} />}
           <div className="flex items-baseline justify-between pt-1.5">
@@ -305,6 +308,7 @@ export function OrderScreen() {
 
       {custom && <ModifierDialog item={custom} onClose={() => setCustom(null)} onAdd={(x) => add(custom, x)} />}
       {line && <LineDialog order={order} line={line} seats={seatCount} canDiscount={canDiscount} onClose={() => setLine(null)} onUpdate={(o) => { setOrder(o); setLine(null); }} />}
+      {dialog === "offers" && <CheckOffersDialog order={order} onClose={() => setDialog(null)} onUpdate={(o) => { setOrder(o); setDialog(null); }} />}
       {dialog === "discount" && <DiscountDialog order={order} onClose={() => setDialog(null)} onUpdate={(o) => { setOrder(o); setDialog(null); }} />}
       {dialog === "guests" && <GuestsDialog order={order} onClose={() => setDialog(null)} onUpdate={(o) => { setOrder(o); setDialog(null); }} />}
       {(dialog === "move" || dialog === "merge") && (
@@ -919,6 +923,7 @@ function PayPanel({ order, title, onBack, onUpdate, onDone }: {
         <div className="mt-4 space-y-1.5 border-t border-dashed border-border pt-4 text-sm">
           <Row l="Subtotal" v={fmt(order.subtotal)} />
           {order.discount.amount > 0 && <Row l={`Discount · ${order.discount.reason}`} v={`−${fmt(order.discount.amount)}`} accent />}
+          {order.promotion && <Row l={`Offer · ${order.promotion.name}`} v={`−${fmt(order.promotion.amount)}`} accent />}
           {taxLines(order, s.tenant?.tax_label || "Tax").map(([l, v]) => <Row key={l} l={l} v={fmt(v)} />)}
           {order.payments.filter((p) => p.kind === "payment").map((p) => (
             <Row key={p.id} l={`Paid · ${METHOD_LABEL[p.method] ?? p.method}${p.tip ? ` (+${fmt(p.tip)} tip)` : ""}`} v={`−${fmt(p.amount)}`} />

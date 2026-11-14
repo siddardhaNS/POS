@@ -164,6 +164,11 @@ class Order(Base):
     discount_value: Mapped[Decimal] = mapped_column(Numeric(10, 2), default=Decimal("0"))
     discount_amount: Mapped[Decimal] = mapped_column(Numeric(12, 2), default=Decimal("0"))
     discount_reason: Mapped[str] = mapped_column(String(120), default="")
+    # Offer applied to the check (amount is part of discount_amount)
+    promotion_id: Mapped[str | None] = mapped_column(ForeignKey("promotions.id", ondelete="SET NULL"), nullable=True)
+    promotion_name: Mapped[str] = mapped_column(String(80), default="")
+    promotion_amount: Mapped[Decimal] = mapped_column(Numeric(12, 2), default=Decimal("0"))
+    promotion_auto_off: Mapped[bool] = mapped_column(Boolean, default=False)  # staff removed the automatic offer
     # Sum of payments applied to the check (excluding tips), and of refunds given back
     paid: Mapped[Decimal] = mapped_column(Numeric(12, 2), default=Decimal("0"))
     refunded: Mapped[Decimal] = mapped_column(Numeric(12, 2), default=Decimal("0"))
@@ -716,4 +721,35 @@ class Customer(Base):
     notes: Mapped[str] = mapped_column(Text, default="")
     points: Mapped[int] = mapped_column(Integer, default=0)  # loyalty balance
     marketing_ok: Mapped[bool] = mapped_column(Boolean, default=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now)
+
+
+# ---------- Offers ----------
+
+class Promotion(Base):
+    """An offer: "10% off above ₹500", "₹100 off with code WELCOME", "20% off desserts", "buy 2 get 1 on beers".
+
+    Applied automatically when eligible (auto and no code) or by staff / code. One offer per check."""
+    __tablename__ = "promotions"
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=uid)
+    tenant_id: Mapped[str] = mapped_column(ForeignKey("tenants.id", ondelete="CASCADE"), index=True)
+    name: Mapped[str] = mapped_column(String(80))
+    active: Mapped[bool] = mapped_column(Boolean, default=True)
+    kind: Mapped[str] = mapped_column(String(12), default="percent")  # percent | amount | items_percent | bxgy
+    value: Mapped[Decimal] = mapped_column(Numeric(10, 2), default=Decimal("0"))  # percent or amount
+    max_discount: Mapped[Decimal] = mapped_column(Numeric(10, 2), default=Decimal("0"))  # cap for percent offers (0 = none)
+    buy_qty: Mapped[int] = mapped_column(Integer, default=0)  # bxgy: buy this many...
+    free_qty: Mapped[int] = mapped_column(Integer, default=0)  # ...get this many of the cheapest free
+    item_ids: Mapped[list] = mapped_column(JSON, default=list)  # items_percent / bxgy: dishes it covers
+    category_ids: Mapped[list] = mapped_column(JSON, default=list)  # ...or whole categories
+    min_subtotal: Mapped[Decimal] = mapped_column(Numeric(10, 2), default=Decimal("0"))
+    channels: Mapped[list] = mapped_column(JSON, default=list)  # menurules.CHANNELS; [] = all
+    schedule: Mapped[dict] = mapped_column(JSON, default=dict)  # days / hours, like menu categories
+    starts_on: Mapped[date | None] = mapped_column(Date, nullable=True)
+    ends_on: Mapped[date | None] = mapped_column(Date, nullable=True)
+    code: Mapped[str] = mapped_column(String(30), default="")  # "" = no code needed
+    auto: Mapped[bool] = mapped_column(Boolean, default=False)  # apply by itself when eligible (no code)
+    customers_only: Mapped[bool] = mapped_column(Boolean, default=False)  # check must have a customer
+    first_visit_only: Mapped[bool] = mapped_column(Boolean, default=False)
+    max_uses: Mapped[int] = mapped_column(Integer, default=0)  # across all checks (0 = unlimited)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now)

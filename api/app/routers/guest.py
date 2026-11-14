@@ -17,7 +17,7 @@ from ..db import get_db
 from ..deps import LIVE_STATUSES, Ctx, has_module, needs, require
 from ..models import DiningTable, Kot, MenuItem, Order, OrderItem, ServiceRequest, Tenant, now
 from .backoffice import _menu
-from .pos import check_sellable, load_order, next_number, order_out, recompute, resolve_modifiers
+from .pos import check_sellable, load_order, next_number, order_out, resolve_modifiers, settle
 
 router = APIRouter(tags=["guest"])
 
@@ -130,7 +130,7 @@ def guest_order(token: str, body: GuestOrderIn, db: Session = Depends(get_db)):
     if body.name.strip() and not o.customer_name:
         o.customer_name = body.name.strip()
     db.flush()
-    recompute(o, tenant.tax_rate)
+    settle(db, tenant, o)
     count = sum(i.qty for i in added)
     summary = ", ".join(f"{i.qty} × {i.name}" for i in added)[:280]
     sent = False

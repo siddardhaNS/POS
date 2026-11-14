@@ -2,7 +2,7 @@
 
 import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { Activity, Armchair, Contact, BarChart3, Bike, Boxes, CalendarClock, Clock, MapPin, ChefHat, History, LayoutGrid, Lock, Menu as MenuIcon, ReceiptText, Settings, UtensilsCrossed, Users, Wallet, X } from "lucide-react";
+import { Activity, Armchair, BadgePercent, Contact, BarChart3, Bike, Boxes, CalendarClock, Clock, MapPin, ChefHat, History, LayoutGrid, Lock, Menu as MenuIcon, ReceiptText, Settings, UtensilsCrossed, Users, Wallet, X } from "lucide-react";
 import { MenuAdmin, Staff } from "@/components/pos/backoffice";
 import { ReportsScreen } from "@/components/pos/reports";
 import { CashScreen } from "@/components/pos/cash";
@@ -11,6 +11,7 @@ import { SettingsScreen } from "@/components/pos/settings";
 import { ActivityScreen } from "@/components/pos/activity";
 import { FloorPlanEditor } from "@/components/pos/floorplan";
 import { CustomersScreen } from "@/components/pos/customers";
+import { OffersScreen } from "@/components/pos/offers";
 import { InventoryScreen } from "@/components/pos/inventory";
 import { TimesheetsScreen } from "@/components/pos/timesheets";
 import { ReservationsScreen } from "@/components/pos/reservations";
@@ -35,6 +36,7 @@ const MODULES: { k: Screen; l: string; perm: string; module?: string; group: "SE
   { k: "cash", l: "Cash drawer", perm: "cash", group: "SERVICE", icon: Wallet },
   { k: "customers", l: "Customers", perm: "customers", group: "SERVICE", icon: Contact },
   { k: "dash", l: "Reports", perm: "reports", group: "MANAGE", icon: BarChart3 },
+  { k: "offers", l: "Offers", perm: "menu", group: "MANAGE", icon: BadgePercent },
   { k: "menu", l: "Menu", perm: "menu", group: "MANAGE", icon: UtensilsCrossed },
   { k: "inventory", l: "Inventory", perm: "inventory_waste", module: "inventory", group: "MANAGE", icon: Boxes },
   { k: "staff", l: "Staff & roles", perm: "staff", group: "MANAGE", icon: Users },
@@ -242,6 +244,7 @@ function ShellInner({ s, screen, go, orderId, payNow, allowed, navOpen, setNavOp
             {screen === "locations" && <LocationsScreen />}
             {screen === "reservations" && <ReservationsScreen />}
             {screen === "customers" && <CustomersScreen />}
+            {screen === "offers" && <OffersScreen />}
           </main>
         </div>
       </div>

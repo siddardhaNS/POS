@@ -117,6 +117,8 @@ def check_doc(t: Tenant, order: Order, kind: str = "receipt") -> dict:
     d = o["discount"]
     if d["amount"]:
         lines.append(LR("Discount" + (f" ({d['reason']})" if d["reason"] else ""), "−" + fmt(d["amount"])))
+    if o["promotion"]:
+        lines.append(LR(f"Offer ({o['promotion']['name']})", "−" + fmt(o["promotion"]["amount"])))
     if o["tax_breakdown"]:
         for b in o["tax_breakdown"]:
             if b["tax"] or b["rate"]:
