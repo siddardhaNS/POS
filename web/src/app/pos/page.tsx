@@ -2,7 +2,7 @@
 
 import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { Activity, Armchair, BadgePercent, Contact, BarChart3, Bike, Boxes, CalendarClock, Clock, MapPin, ChefHat, History, LayoutGrid, Lock, Menu as MenuIcon, PartyPopper, ReceiptText, Settings, Truck, UtensilsCrossed, Users, Wallet, X } from "lucide-react";
+import { Lock, Menu as MenuIcon, X } from "lucide-react";
 import { MenuAdmin, Staff } from "@/components/pos/backoffice";
 import { ReportsScreen } from "@/components/pos/reports";
 import { CashScreen } from "@/components/pos/cash";
@@ -29,28 +29,35 @@ import { api, can, hasModule, session, type Session, type Tenant } from "@/lib/a
 import { cn } from "@/lib/utils";
 
 // `module`: an optional module the restaurant must have turned on (set per restaurant in the admin console).
-const MODULES: { k: Screen; l: string; perm: string; module?: string; group: "SERVICE" | "MANAGE"; icon: React.ComponentType<{ className?: string }> }[] = [
-  { k: "floor", l: "Floor", perm: "floor", group: "SERVICE", icon: LayoutGrid },
-  { k: "order", l: "Current check", perm: "order", group: "SERVICE", icon: ReceiptText },
-  { k: "reservations", l: "Reservations", perm: "floor", module: "reservations", group: "SERVICE", icon: CalendarClock },
-  { k: "orders", l: "Order history", perm: "history", group: "SERVICE", icon: History },
-  { k: "deliveries", l: "Deliveries", perm: "floor", group: "SERVICE", icon: Truck },
-  { k: "events", l: "Events & catering", perm: "floor", group: "SERVICE", icon: PartyPopper },
-  { k: "online", l: "Online orders", perm: "online", module: "online", group: "SERVICE", icon: Bike },
-  { k: "kds", l: "Kitchen", perm: "kds", group: "SERVICE", icon: ChefHat },
-  { k: "cash", l: "Cash drawer", perm: "cash", group: "SERVICE", icon: Wallet },
-  { k: "customers", l: "Customers", perm: "customers", group: "SERVICE", icon: Contact },
-  { k: "dash", l: "Reports", perm: "reports", group: "MANAGE", icon: BarChart3 },
-  { k: "offers", l: "Offers", perm: "menu", group: "MANAGE", icon: BadgePercent },
-  { k: "menu", l: "Menu", perm: "menu", group: "MANAGE", icon: UtensilsCrossed },
-  { k: "inventory", l: "Inventory", perm: "inventory_waste", module: "inventory", group: "MANAGE", icon: Boxes },
-  { k: "staff", l: "Staff & roles", perm: "staff", group: "MANAGE", icon: Users },
-  { k: "locations", l: "Locations", perm: "locations", module: "locations", group: "MANAGE", icon: MapPin },
-  { k: "timesheets", l: "Timesheets", perm: "timesheets", module: "timeclock", group: "MANAGE", icon: Clock },
-  { k: "audit", l: "Activity log", perm: "reports", group: "MANAGE", icon: Activity },
-  { k: "floorplan", l: "Floor plan", perm: "tables", group: "MANAGE", icon: Armchair },
-  { k: "settings", l: "Settings", perm: "settings", group: "MANAGE", icon: Settings },
+// Order and grouping follow the Service / Manage sidebar design; `gap` starts a new block within its side.
+const MODULES: { k: Screen; l: string; perm: string; module?: string; group: "SERVICE" | "MANAGE"; gap?: boolean }[] = [
+  { k: "floor", l: "Floor", perm: "floor", group: "SERVICE" },
+  { k: "order", l: "Current check", perm: "order", group: "SERVICE" },
+  { k: "kds", l: "Kitchen", perm: "kds", group: "SERVICE" },
+  { k: "online", l: "Online orders", perm: "online", module: "online", group: "SERVICE" },
+  { k: "reservations", l: "Reservations", perm: "floor", module: "reservations", group: "SERVICE", gap: true },
+  { k: "deliveries", l: "Deliveries", perm: "floor", group: "SERVICE" },
+  { k: "events", l: "Events & catering", perm: "floor", group: "SERVICE" },
+  { k: "orders", l: "Order history", perm: "history", group: "SERVICE", gap: true },
+  { k: "cash", l: "Cash drawer", perm: "cash", group: "SERVICE" },
+  { k: "customers", l: "Customers", perm: "customers", group: "SERVICE" },
+  { k: "menu", l: "Menu", perm: "menu", group: "MANAGE" },
+  { k: "inventory", l: "Inventory", perm: "inventory_waste", module: "inventory", group: "MANAGE" },
+  { k: "offers", l: "Offers", perm: "menu", group: "MANAGE" },
+  { k: "dash", l: "Reports", perm: "reports", group: "MANAGE", gap: true },
+  { k: "audit", l: "Activity log", perm: "reports", group: "MANAGE" },
+  { k: "staff", l: "Staff & roles", perm: "staff", group: "MANAGE", gap: true },
+  { k: "timesheets", l: "Timesheets", perm: "timesheets", module: "timeclock", group: "MANAGE" },
+  { k: "locations", l: "Locations", perm: "locations", module: "locations", group: "MANAGE", gap: true },
+  { k: "floorplan", l: "Floor plan", perm: "tables", group: "MANAGE" },
+  { k: "settings", l: "Settings", perm: "settings", group: "MANAGE" },
 ];
+
+type Side = "SERVICE" | "MANAGE";
+const LAST_KEY = "tiffin.lastScreen";
+const readLast = (): Partial<Record<Side, Screen>> => {
+  try { return JSON.parse(localStorage.getItem(LAST_KEY) ?? "{}"); } catch { return {}; }
+};
 
 export default function PosPage() {
   const router = useRouter();
@@ -162,47 +169,72 @@ function ShellInner({ s, screen, go, orderId, payNow, allowed, navOpen, setNavOp
   const badges: Partial<Record<Screen, number>> = { online: fresh, kds: tickets, floor: asking };
   const act = MODULES.find((m) => m.k === screen)!;
   const ini = s.user.name.split(" ").map((w) => w[0]).join("").slice(0, 2);
+  // Service / Manage: the side of the current screen; each side remembers its last screen (kept across reloads).
+  const side: Side = act?.group ?? "SERVICE";
+  const hasBoth = allowed.some((m) => m.group === "SERVICE") && allowed.some((m) => m.group === "MANAGE");
+  const visible = hasBoth ? allowed.filter((m) => m.group === side) : allowed;
+  useEffect(() => {
+    if (!act) return;
+    try { localStorage.setItem(LAST_KEY, JSON.stringify({ ...readLast(), [act.group]: act.k })); } catch { /* storage blocked */ }
+  }, [act]);
+  const switchSide = (g: Side) => {
+    if (g === side) return;
+    const last = readLast()[g];
+    const target = allowed.find((m) => m.k === last && m.group === g) ?? allowed.find((m) => m.group === g);
+    if (target) go(target.k);
+  };
   const trialDays = s.tenant?.trial_ends_at && s.tenant.status === "trial"
     ? Math.max(0, Math.ceil((new Date(s.tenant.trial_ends_at).getTime() - Date.now()) / 86400000)) : null;
 
   const nav = (
     <>
       <div className="flex items-center gap-2.5 px-2 pb-4">
-        <span className="grid size-[34px] place-items-center rounded-[10px] bg-saffron font-bold text-[#1d1c1a]">t</span>
+        <span className="grid size-8 shrink-0 place-items-center rounded-lg bg-[#ee8a3a] font-bold text-white">t</span>
         <div className="min-w-0">
-          <div className="truncate font-semibold">{s.tenant?.name}</div>
-          {s.tenant?.location_name && <div className="truncate text-[12px] text-white/70">{s.tenant.location_name}</div>}
-          <div className="text-[11.5px] text-white/45">{s.tenant?.market === "US" ? "USD · $" : "INR · ₹"}</div>
+          <div className="truncate text-[14px] font-semibold text-white">{s.tenant?.name}</div>
+          {s.tenant?.location_name && <div className="truncate text-[12px] text-[#cfc8be]">{s.tenant.location_name}</div>}
+          <div className="text-[11px] text-[#8d867c]">{s.tenant?.market === "US" ? "USD · $" : "INR · ₹"}</div>
         </div>
       </div>
       <LocationSwitcher enabled={hasModule(s.tenant, "locations") || !!s.tenant?.brand_id} />
-      {(["SERVICE", "MANAGE"] as const).map((g) => {
-        const items = allowed.filter((m) => m.group === g);
-        if (!items.length) return null;
-        return (
-          <div key={g}>
-            <div className="px-2.5 pb-1.5 pt-4 font-mono text-[10.5px] tracking-[0.06em] text-white/40">{g}</div>
-            {items.map(({ k, l, icon: Icon }) => (
-              <button key={k} onClick={() => go(k)}
-                className={cn("flex w-full items-center gap-2.5 rounded-[10px] px-2.5 py-2.5 text-[13.5px] transition",
-                  screen === k ? "bg-white/12 text-white" : "text-white/55 hover:text-white")}>
-                <Icon className="size-4" />{l}
-                {!!badges[k] && <span className="ml-auto rounded-full bg-saffron px-1.5 font-mono text-[11px] font-semibold text-[#1d1c1a]">{badges[k]}</span>}
+      {hasBoth && (
+        <div className="mb-4 grid grid-cols-2 rounded-[11px] bg-[#2c2925] p-[3px] text-[13px]">
+          {(["SERVICE", "MANAGE"] as const).map((g) => {
+            const on = side === g;
+            const waiting = !on && allowed.some((m) => m.group === g && badges[m.k]);
+            return (
+              <button key={g} onClick={() => switchSide(g)}
+                className={cn("rounded-lg py-[7px] text-center font-medium transition", on ? "bg-[#4a453f] text-white" : "text-[#a39c92] hover:text-white")}>
+                {g === "SERVICE" ? "Service" : "Manage"}
+                {waiting && <span className="ml-1.5 inline-block size-1.5 rounded-full bg-[#ee8a3a] align-middle" aria-label="Something needs attention" />}
               </button>
-            ))}
+            );
+          })}
+        </div>
+      )}
+      <nav className="min-h-0 overflow-y-auto">
+        {visible.map(({ k, l, gap }, i) => (
+          <div key={k}>
+            {gap && i > 0 && <div className="h-3" />}
+            <button onClick={() => go(k)}
+              className={cn("flex w-full items-center justify-between rounded-lg px-2.5 py-2 text-left text-[13px] transition",
+                screen === k ? "bg-[#3a3631] font-medium text-white" : "text-[#cfc8be] hover:bg-[#2c2925]")}>
+              <span>{l}</span>
+              {!!badges[k] && <span className="grid h-[18px] min-w-[18px] place-items-center rounded-full bg-[#ee8a3a] px-[5px] font-mono text-[10px] font-semibold text-white">{badges[k]}</span>}
+            </button>
           </div>
-        );
-      })}
+        ))}
+      </nav>
       <div className="flex-1" />
       <DesktopAppLink />
       {trialDays != null && (
         <div className="mb-2 rounded-xl bg-saffron/15 px-3 py-2.5 text-xs text-saffron">Free trial · {trialDays} day{trialDays === 1 ? "" : "s"} left</div>
       )}
-      <div className="flex items-center gap-2.5 rounded-xl bg-white/[0.06] p-2.5">
-        <span className="grid size-[34px] place-items-center rounded-full bg-[#3a3834] text-xs font-semibold">{ini}</span>
+      <div className="flex items-center gap-2.5 border-t border-[#33302c] px-2.5 pt-2.5 text-[12px]">
+        <span className="grid size-7 place-items-center rounded-full bg-[#3a3631] text-[11px] text-white">{ini}</span>
         <div className="min-w-0 flex-1">
-          <div className="truncate text-[13px] font-medium">{s.user.name}</div>
-          <div className="text-[11.5px] capitalize text-white/45">{s.user.role}</div>
+          <div className="truncate text-white">{s.user.name}</div>
+          <div className="capitalize text-[#7c766d]">{s.user.role}</div>
         </div>
         <button onClick={onLock} title="Lock" className="grid size-8 place-items-center rounded-lg text-white/60 hover:bg-white/10 hover:text-white"><Lock className="size-4" /></button>
       </div>
@@ -212,11 +244,11 @@ function ShellInner({ s, screen, go, orderId, payNow, allowed, navOpen, setNavOp
   return (
     <Pos.Provider value={{ s, fmt, go, orderId, payNow, setTenant }}>
       <div className="flex h-dvh overflow-hidden bg-background">
-        <aside className="hidden w-[232px] shrink-0 flex-col gap-1 bg-[#1d1c1a] px-3.5 py-[18px] text-white md:flex">{nav}</aside>
+        <aside className="hidden w-[220px] shrink-0 flex-col gap-0.5 bg-[#211f1d] px-3 py-[18px] text-[#cfc8be] md:flex">{nav}</aside>
         {navOpen && (
           <div className="fixed inset-0 z-40 md:hidden" onClick={() => setNavOpen(false)}>
             <div className="absolute inset-0 bg-black/40" />
-            <aside onClick={(e) => e.stopPropagation()} className="absolute inset-y-0 left-0 flex w-64 flex-col gap-1 bg-[#1d1c1a] px-3.5 py-[18px] text-white">
+            <aside onClick={(e) => e.stopPropagation()} className="absolute inset-y-0 left-0 flex w-64 flex-col gap-0.5 bg-[#211f1d] px-3 py-[18px] text-[#cfc8be]">
               <button onClick={() => setNavOpen(false)} className="absolute right-3 top-4 text-white/60"><X className="size-5" /></button>
               {nav}
             </aside>
