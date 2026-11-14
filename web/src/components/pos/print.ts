@@ -58,6 +58,7 @@ export function printReceipt(o: Order, t: Tenant | null | undefined, fmt: (v: nu
     <hr><div class="c b">${label}</div>
     <div class="r"><span>${esc(orderTitle(o))}</span><span>#${o.number}</span></div>
     <div>${when(o.closed_at ?? o.opened_at)}${o.guests ? ` · ${o.guests} guests` : ""}</div>
+    ${o.delivery ? `<div>Deliver to: ${esc([o.customer_name, o.customer_phone].filter(Boolean).join(" "))}</div><div>${esc(o.delivery.address)}</div>${o.delivery.note ? `<div>Note: ${esc(o.delivery.note)}</div>` : ""}` : ""}
     ${o.invoice_no && kind !== "bill" ? `<div class="r"><span>Invoice</span><span>${esc(o.invoice_no)}</span></div>` : ""}
     ${o.customer_gstin ? `<div>${o.customer_name ? `Bill to: ${esc(o.customer_name)}<br>` : ""}GSTIN: ${esc(o.customer_gstin)}</div>` : ""}
     <hr>${lines}<hr>
@@ -65,6 +66,7 @@ export function printReceipt(o: Order, t: Tenant | null | undefined, fmt: (v: nu
     ${o.discount.amount ? `<div class="r"><span>Discount${o.discount.reason ? ` (${esc(o.discount.reason)})` : ""}</span><span>−${fmt(o.discount.amount)}</span></div>` : ""}
     ${o.promotion ? `<div class="r"><span>Offer (${esc(o.promotion.name)})</span><span>−${fmt(o.promotion.amount)}</span></div>` : ""}
     ${taxLines(o, t?.tax_label || "Tax").map(([l, v]) => `<div class="r"><span>${esc(l)}</span><span>${fmt(v)}</span></div>`).join("")}
+    ${o.delivery?.fee ? `<div class="r"><span>Delivery fee</span><span>${fmt(o.delivery.fee)}</span></div>` : ""}
     ${o.tip ? `<div class="r"><span>Tip</span><span>${fmt(o.tip)}</span></div>` : ""}
     <div class="r b huge"><span>Total</span><span>${fmt(o.due + o.tip)}</span></div>
     ${pays ? `<hr>${pays}` : ""}

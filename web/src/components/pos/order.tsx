@@ -192,6 +192,7 @@ export function OrderScreen() {
               Check #{order.number} · {order.items.reduce((a, l) => a + l.qty, 0)} items
               {order.guests ? ` · ${order.guests} guests` : ""}{order.customer_phone ? ` · ${order.customer_phone}` : ""}
             </div>
+            {order.delivery && <div className="truncate text-xs text-muted-foreground">Deliver to {order.delivery.address}{order.delivery.rider_name ? ` · ${order.delivery.rider_name}` : ""}</div>}
           </button>
           {open && (
             <button onClick={() => setMore((v) => !v)} className="grid size-10 shrink-0 place-items-center rounded-xl bg-muted" aria-label="Check actions">
@@ -283,6 +284,7 @@ export function OrderScreen() {
           {order.discount.amount > 0 && <Row l={`Discount · ${order.discount.kind === "percent" ? `${order.discount.value}%` : "fixed"} · ${order.discount.reason}`} v={`−${fmt(order.discount.amount)}`} accent />}
           {order.promotion && <Row l={`Offer · ${order.promotion.name}`} v={`−${fmt(order.promotion.amount)}`} accent />}
           {taxLines(order, s.tenant?.tax_label || "Tax").map(([l, v]) => <Row key={l} l={l} v={fmt(v)} />)}
+          {!!order.delivery?.fee && <Row l="Delivery fee" v={fmt(order.delivery.fee)} />}
           {order.paid > 0 && <Row l="Paid so far" v={`−${fmt(order.paid)}`} />}
           <div className="flex items-baseline justify-between pt-1.5">
             <span className="font-semibold">{order.paid > 0 ? "Balance due" : "Total"}</span>
@@ -933,6 +935,7 @@ function PayPanel({ order, title, onBack, onUpdate, onDone }: {
           {order.discount.amount > 0 && <Row l={`Discount · ${order.discount.reason}`} v={`−${fmt(order.discount.amount)}`} accent />}
           {order.promotion && <Row l={`Offer · ${order.promotion.name}`} v={`−${fmt(order.promotion.amount)}`} accent />}
           {taxLines(order, s.tenant?.tax_label || "Tax").map(([l, v]) => <Row key={l} l={l} v={fmt(v)} />)}
+          {!!order.delivery?.fee && <Row l="Delivery fee" v={fmt(order.delivery.fee)} />}
           {order.payments.filter((p) => p.kind === "payment").map((p) => (
             <Row key={p.id} l={`Paid · ${METHOD_LABEL[p.method] ?? p.method}${p.tip ? ` (+${fmt(p.tip)} tip)` : ""}`} v={`−${fmt(p.amount)}`} />
           ))}

@@ -56,6 +56,8 @@ def order_title(o: dict) -> str:
         return f"Table {name}"
     if o["channel"] == "takeaway":
         return f"Takeaway #{o['number']}" + (f" · {o['customer_name']}" if o["customer_name"] else "")
+    if o["channel"] == "delivery":
+        return f"Delivery #{o['number']}" + (f" · {o['customer_name']}" if o["customer_name"] else "")
     return f"Order #{o['number']}"
 
 
@@ -100,6 +102,11 @@ def check_doc(t: Tenant, order: Order, kind: str = "receipt") -> dict:
                          T(when(t, o["closed_at"] or o["opened_at"]) + (f" · {o['guests']} guests" if o["guests"] else ""))]
     if o["invoice_no"] and kind != "bill":
         lines.append(LR("Invoice", o["invoice_no"]))
+    if o["delivery"]:
+        dl = o["delivery"]
+        lines += [T(f"Deliver to: {o['customer_name'] or ''} {o['customer_phone'] or ''}".strip()), T(dl["address"])]
+        if dl["note"]:
+            lines.append(T(f"Note: {dl['note']}"))
     if o["customer_name"] and o["customer_gstin"]:
         lines += [T(f"Bill to: {o['customer_name']}"), T(f"GSTIN: {o['customer_gstin']}")]
     elif o["customer_gstin"]:
@@ -125,6 +132,8 @@ def check_doc(t: Tenant, order: Order, kind: str = "receipt") -> dict:
                 lines.append(LR(f"{b['name']} {b['rate']:g}%" if b["name"] in ("CGST", "SGST", "IGST", "UTGST") else b["name"], fmt(b["tax"])))
     else:
         lines.append(LR(t.tax_label or "Tax", fmt(o["tax"])))
+    if o["delivery"] and o["delivery"]["fee"]:
+        lines.append(LR("Delivery fee", fmt(o["delivery"]["fee"])))
     if o["tip"]:
         lines.append(LR("Tip", fmt(o["tip"])))
     lines.append(LR("Total", fmt(o["due"] + o["tip"]), True, 2))

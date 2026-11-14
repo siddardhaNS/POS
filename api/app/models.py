@@ -66,6 +66,7 @@ class Tenant(Base):
     loyalty_earn_per: Mapped[Decimal] = mapped_column(Numeric(10, 2), default=Decimal("100"))
     loyalty_point_value: Mapped[Decimal] = mapped_column(Numeric(10, 4), default=Decimal("1"))
     loyalty_min_redeem: Mapped[int] = mapped_column(Integer, default=100)
+    delivery_fee: Mapped[Decimal] = mapped_column(Numeric(10, 2), default=Decimal("0"))  # default fee on new deliveries
 
 
 class User(Base):
@@ -159,6 +160,15 @@ class Order(Base):
     customer_phone: Mapped[str] = mapped_column(String(40), default="")
     customer_gstin: Mapped[str] = mapped_column(String(15), default="")  # B2B invoice: the buyer's GSTIN / tax ID
     customer_id: Mapped[str | None] = mapped_column(ForeignKey("customers.id", ondelete="SET NULL"), nullable=True, index=True)
+    # In-house delivery (channel "delivery")
+    delivery_address: Mapped[str] = mapped_column(Text, default="")
+    delivery_note: Mapped[str] = mapped_column(String(200), default="")
+    delivery_fee: Mapped[Decimal] = mapped_column(Numeric(10, 2), default=Decimal("0"))  # added to the bill, untaxed
+    delivery_status: Mapped[str] = mapped_column(String(12), default="")  # preparing | out | delivered
+    rider_id: Mapped[str | None] = mapped_column(ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
+    rider_name: Mapped[str] = mapped_column(String(120), default="")
+    dispatched_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    delivered_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     # Invoice number, given when the check is paid: sequential per financial year
     invoice_no: Mapped[str] = mapped_column(String(40), default="", index=True)
     invoice_fy: Mapped[str] = mapped_column(String(9), default="")

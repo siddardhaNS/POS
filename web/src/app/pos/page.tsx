@@ -2,7 +2,7 @@
 
 import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { Activity, Armchair, BadgePercent, Contact, BarChart3, Bike, Boxes, CalendarClock, Clock, MapPin, ChefHat, History, LayoutGrid, Lock, Menu as MenuIcon, ReceiptText, Settings, UtensilsCrossed, Users, Wallet, X } from "lucide-react";
+import { Activity, Armchair, BadgePercent, Contact, BarChart3, Bike, Boxes, CalendarClock, Clock, MapPin, ChefHat, History, LayoutGrid, Lock, Menu as MenuIcon, ReceiptText, Settings, Truck, UtensilsCrossed, Users, Wallet, X } from "lucide-react";
 import { MenuAdmin, Staff } from "@/components/pos/backoffice";
 import { ReportsScreen } from "@/components/pos/reports";
 import { CashScreen } from "@/components/pos/cash";
@@ -12,6 +12,7 @@ import { ActivityScreen } from "@/components/pos/activity";
 import { FloorPlanEditor } from "@/components/pos/floorplan";
 import { CustomersScreen } from "@/components/pos/customers";
 import { OffersScreen } from "@/components/pos/offers";
+import { DeliveriesScreen } from "@/components/pos/deliveries";
 import { InventoryScreen } from "@/components/pos/inventory";
 import { TimesheetsScreen } from "@/components/pos/timesheets";
 import { ReservationsScreen } from "@/components/pos/reservations";
@@ -31,6 +32,7 @@ const MODULES: { k: Screen; l: string; perm: string; module?: string; group: "SE
   { k: "order", l: "Current check", perm: "order", group: "SERVICE", icon: ReceiptText },
   { k: "reservations", l: "Reservations", perm: "floor", module: "reservations", group: "SERVICE", icon: CalendarClock },
   { k: "orders", l: "Order history", perm: "history", group: "SERVICE", icon: History },
+  { k: "deliveries", l: "Deliveries", perm: "floor", group: "SERVICE", icon: Truck },
   { k: "online", l: "Online orders", perm: "online", module: "online", group: "SERVICE", icon: Bike },
   { k: "kds", l: "Kitchen", perm: "kds", group: "SERVICE", icon: ChefHat },
   { k: "cash", l: "Cash drawer", perm: "cash", group: "SERVICE", icon: Wallet },
@@ -245,6 +247,7 @@ function ShellInner({ s, screen, go, orderId, payNow, allowed, navOpen, setNavOp
             {screen === "reservations" && <ReservationsScreen />}
             {screen === "customers" && <CustomersScreen />}
             {screen === "offers" && <OffersScreen />}
+            {screen === "deliveries" && <DeliveriesScreen />}
           </main>
         </div>
       </div>

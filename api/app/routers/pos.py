@@ -14,7 +14,7 @@ from ..db import get_db
 from ..deps import PERMISSIONS, Ctx, has_module, needs, require
 from ..live import ALL_TOPICS, audit
 from .. import crm, loyalty, menurules, phases, promo, taxes
-from ..models import CreditNote, Customer, DiningTable, Kot, LiveRev, MenuCategory, MenuItem, ModifierGroup, Order, OrderItem, Payment, ServiceRequest, Tenant, now
+from ..models import CreditNote, Customer, DiningTable, User, Kot, LiveRev, MenuCategory, MenuItem, ModifierGroup, Order, OrderItem, Payment, ServiceRequest, Tenant, now
 from ..stock import deduct_for_order
 
 router = APIRouter(tags=["pos"])
@@ -56,12 +56,12 @@ def recompute(o: Order, tax_rate: Decimal) -> None:
     o.subtotal, o.discount_amount = q(sub), q(disc)
     o.tax = taxes.order_tax(o, tax_rate, line_total)  # per line: dishes can sit in different tax classes
     o.tip = q(sum((p.tip for p in o.payments if p.kind == "payment"), Decimal(0)))
-    o.total = o.subtotal - o.discount_amount + o.tax + o.tip
+    o.total = o.subtotal - o.discount_amount + o.tax + Decimal(o.delivery_fee or 0) + o.tip
 
 
 def due(o: Order) -> Decimal:
-    """What the guest owes for food: after discount, with tax, before tips."""
-    return Decimal(o.subtotal) - Decimal(o.discount_amount or 0) + Decimal(o.tax)
+    """What the guest owes: food after discount, with tax, plus any delivery fee, before tips."""
+    return Decimal(o.subtotal) - Decimal(o.discount_amount or 0) + Decimal(o.tax) + Decimal(o.delivery_fee or 0)
 
 
 def balance(o: Order) -> Decimal:
@@ -87,6 +87,10 @@ def order_out(o: Order) -> dict:
         "loyalty": ({"points": o.customer.points, "value": money(loyalty.value_of(o.tenant, o.customer.points)),
                      "min_redeem": o.tenant.loyalty_min_redeem}
                     if o.customer_id and o.tenant.loyalty_enabled and o.customer else None),
+        "delivery": ({"address": o.delivery_address, "note": o.delivery_note, "fee": money(o.delivery_fee), "status": o.delivery_status,
+                      "rider_id": o.rider_id, "rider_name": o.rider_name,
+                      "dispatched_at": o.dispatched_at.isoformat() if o.dispatched_at else None,
+                      "delivered_at": o.delivered_at.isoformat() if o.delivered_at else None} if o.channel == "delivery" else None),
         "promotion": {"id": o.promotion_id, "name": o.promotion_name, "amount": money(o.promotion_amount)} if o.promotion_id else None,
         "due": money(due(o)), "paid": money(o.paid), "refunded": money(o.refunded), "balance": money(balance(o)),
         "payment_method": o.payment_method, "void_reason": o.void_reason,
@@ -273,19 +277,107 @@ def open_table(table_id: str, ctx: Ctx = Depends(require("order")), db: Session 
 # ---------- Orders: takeaway, history, details ----------
 
 class NewOrderIn(BaseModel):
-    channel: str = Field(default="takeaway", pattern=r"^takeaway$")
+    channel: str = Field(default="takeaway", pattern=r"^(takeaway|delivery)$")
     customer_name: str = Field(default="", max_length=120)
     customer_phone: str = Field(default="", max_length=40)
+    delivery_address: str = Field(default="", max_length=500)
+    delivery_note: str = Field(default="", max_length=200)
+    delivery_fee: float | None = Field(default=None, ge=0, le=100_000)  # None = the restaurant's default
 
 
 @router.post("/orders", status_code=201)
 def new_order(body: NewOrderIn, ctx: Ctx = Depends(require("order")), db: Session = Depends(get_db)):
+    if body.channel == "delivery" and (not body.customer_phone.strip() or not body.delivery_address.strip()):
+        raise HTTPException(422, "A delivery needs the customer's phone and address")
     o = Order(tenant_id=ctx.tenant_id, number=next_number(db, Order, ctx.tenant_id), channel=body.channel,
               customer_name=body.customer_name.strip(), customer_phone=body.customer_phone.strip(), opened_by=ctx.user.id)
+    if body.channel == "delivery":
+        o.delivery_address, o.delivery_note, o.delivery_status = body.delivery_address.strip(), body.delivery_note.strip(), "preparing"
+        o.delivery_fee = Decimal(str(body.delivery_fee)) if body.delivery_fee is not None else Decimal(ctx.tenant.delivery_fee or 0)
     db.add(o)
-    crm.link(db, ctx.tenant, o)
+    c = crm.link(db, ctx.tenant, o)
+    if c is not None and o.delivery_address and not c.address:
+        c.address = o.delivery_address  # remembered for next time
+    recompute(o, ctx.tenant.tax_rate)
     db.commit()
     return order_out(load_order(db, ctx, o.id))
+
+
+# ---------- In-house delivery ----------
+
+@router.get("/deliveries")
+def deliveries(ctx: Ctx = Depends(require("floor")), db: Session = Depends(get_db)):
+    """Open deliveries, plus today's delivered ones, oldest first."""
+    tz = tenant_tz(ctx.tenant)
+    d = datetime.now(tz).date()
+    start = datetime(d.year, d.month, d.day, tzinfo=tz)
+    rows = db.scalars(select(Order).where(Order.tenant_id == ctx.tenant_id, Order.channel == "delivery",
+                                          Order.status.notin_(("void", "merged", "rejected")),
+                                          or_(Order.delivery_status != "delivered", Order.delivered_at >= start))
+                      .options(selectinload(Order.items), selectinload(Order.payments), selectinload(Order.table))
+                      .order_by(Order.opened_at)).all()
+    return [order_out(o) for o in rows]
+
+
+class DeliveryPatch(BaseModel):
+    address: str | None = Field(default=None, max_length=500)
+    note: str | None = Field(default=None, max_length=200)
+    fee: float | None = Field(default=None, ge=0, le=100_000)
+    rider_id: str | None = Field(default=None, max_length=36)  # "" = unassign
+    status: str | None = Field(default=None, pattern=r"^(preparing|out|delivered)$")
+
+
+@router.patch("/orders/{oid}/delivery")
+def edit_delivery(oid: str, body: DeliveryPatch, ctx: Ctx = Depends(require("order")), db: Session = Depends(get_db)):
+    o = load_order(db, ctx, oid)
+    if o.channel != "delivery":
+        raise HTTPException(409, "Not a delivery")
+    if o.status in ("void", "merged"):
+        raise HTTPException(409, "This order is closed")
+    if body.address is not None:
+        if not body.address.strip():
+            raise HTTPException(422, "Enter the address")
+        o.delivery_address = body.address.strip()
+    if body.note is not None:
+        o.delivery_note = body.note.strip()
+    if body.fee is not None:
+        if o.paid:
+            raise HTTPException(409, "This order already has payments. Refund first to change the fee.")
+        o.delivery_fee = Decimal(str(body.fee))
+    if body.rider_id is not None:
+        if body.rider_id:
+            u = db.scalar(select(User).where(User.id == body.rider_id, User.tenant_id == ctx.tenant_id, User.is_active.is_(True)))
+            if not u:
+                raise HTTPException(404, "Staff member not found")
+            o.rider_id, o.rider_name = u.id, u.name
+        else:
+            o.rider_id, o.rider_name = None, ""
+    if body.status is not None and body.status != o.delivery_status:
+        if body.status == "out":
+            if not o.rider_id:
+                raise HTTPException(409, "Pick who is taking it first")
+            if any(i.kot_id is None for i in o.items):
+                raise HTTPException(409, "Some items haven't been sent to the kitchen yet")
+            o.dispatched_at = now()
+        if body.status == "delivered":
+            o.delivered_at = now()
+            o.dispatched_at = o.dispatched_at or o.delivered_at
+        if body.status == "preparing":
+            o.dispatched_at, o.delivered_at = None, None
+        audit(db, ctx, "delivery", order=o, detail=f"{o.delivery_status or 'new'} → {body.status}" + (f" · {o.rider_name}" if o.rider_name else ""))
+        o.delivery_status = body.status
+    if o.status == "open":
+        return save(db, ctx, o)
+    db.commit()
+    return order_out(load_order(db, ctx, oid))
+
+
+@router.get("/deliveries/riders")
+def riders(ctx: Ctx = Depends(require("floor")), db: Session = Depends(get_db)):
+    """Staff who can take a delivery (anyone active except the kitchen)."""
+    rows = db.scalars(select(User).where(User.tenant_id == ctx.tenant_id, User.is_active.is_(True), User.role != "chef")
+                      .order_by(User.name)).all()
+    return [{"id": u.id, "name": u.name, "role": u.role} for u in rows]
 
 
 @router.get("/orders/open")
@@ -797,6 +889,8 @@ def kds_title(o: Order) -> str:
         return f"{o.table.name} · Dine-in"
     if o.channel == "takeaway":
         return f"Takeaway · #{o.number}" + (f" · {o.customer_name}" if o.customer_name else "")
+    if o.channel == "delivery":
+        return f"Delivery · #{o.number}" + (f" · {o.customer_name}" if o.customer_name else "")
     return f"{o.channel.title()} · #{o.number}"
 
 

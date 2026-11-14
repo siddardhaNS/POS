@@ -44,7 +44,12 @@ export interface Order {
   customer_gstin?: string; invoice_no?: string; customer_id?: string | null;
   promotion?: { id: string; name: string; amount: number } | null;
   loyalty?: { points: number; value: number; min_redeem: number } | null;
+  delivery?: Delivery | null;
   tax_breakdown?: TaxPart[];
+}
+export interface Delivery {
+  address: string; note: string; fee: number; status: "preparing" | "out" | "delivered" | ""; rider_id: string | null; rider_name: string;
+  dispatched_at: string | null; delivered_at: string | null;
 }
 export interface TaxPart { name: string; rate: number; taxable: number; tax: number }
 export interface CreditNote {

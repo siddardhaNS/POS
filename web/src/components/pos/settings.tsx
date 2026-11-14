@@ -75,7 +75,7 @@ function TenantForm({ tab }: { tab: "restaurant" | "tax" | "loyalty" | "receipts
         ...(hasClasses ? {} : { tax_label: t.tax_label, tax_rate: (Number(rate) || 0) / 100 }), tips_enabled: t.tips_enabled,
         invoice_prefix: t.invoice_prefix ?? "",
         loyalty_enabled: !!t.loyalty_enabled, loyalty_earn_per: t.loyalty_earn_per || 1, loyalty_point_value: t.loyalty_point_value ?? 0,
-        loyalty_min_redeem: t.loyalty_min_redeem ?? 0,
+        loyalty_min_redeem: t.loyalty_min_redeem ?? 0, delivery_fee: t.delivery_fee ?? 0,
         receipt_footer: t.receipt_footer, auto_print_kot: t.auto_print_kot, auto_print_receipt: t.auto_print_receipt,
       },
     }), "Settings saved");
@@ -102,6 +102,8 @@ function TenantForm({ tab }: { tab: "restaurant" | "tax" | "loyalty" | "receipts
             <Field label="City"><Input value={t.city ?? ""} onChange={(e) => set({ city: e.target.value })} className="h-11" /></Field>
           </div>
           <Field label="Address" hint="Printed at the top of receipts"><Textarea rows={2} value={t.address ?? ""} onChange={(e) => set({ address: e.target.value })} /></Field>
+          <Field label={`Delivery fee (${t.currency})`} hint="Added to new in-house deliveries; can be changed on each order">
+            <Input type="number" min={0} step="0.01" value={t.delivery_fee ?? 0} onChange={(e) => set({ delivery_fee: Number(e.target.value) })} className="h-11 max-w-40 font-mono" /></Field>
           <Field label="Time zone" hint="Used for reports and the day's order history">
             <select value={t.timezone} onChange={(e) => set({ timezone: e.target.value })}
               className="h-11 w-full rounded-lg border border-input bg-card px-3 text-sm">
