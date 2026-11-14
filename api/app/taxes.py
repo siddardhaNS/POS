@@ -55,6 +55,12 @@ def line_rate(i: OrderItem, default: Decimal) -> Decimal:
     return Decimal(i.tax_rate) if i.tax_rate is not None else Decimal(default)
 
 
+def line_base(i: OrderItem, o: Order, default: Decimal, line_total) -> Decimal:
+    """A line's value before tax: as entered, or with the tax taken out when the check's prices include it."""
+    v = line_total(i)
+    return v / (1 + line_rate(i, default)) if o.tax_inclusive else v
+
+
 def discount_factor(o: Order) -> Decimal:
     sub = Decimal(o.subtotal or 0)
     return (1 - Decimal(o.discount_amount or 0) / sub) if sub else Decimal(1)
@@ -72,7 +78,7 @@ def breakdown(o: Order, default_rate: Decimal, default_label: str, line_total) -
     f = discount_factor(o)
     acc: dict[tuple[str, float], list[Decimal]] = defaultdict(lambda: [Decimal(0), Decimal(0)])
     for i in o.items:
-        net = line_total(i) * f
+        net = line_base(i, o, default_rate, line_total) * f
         parts = i.tax_parts or parts_of(i.tax_name or default_label or "Tax", line_rate(i, default_rate), None)
         for p in parts:
             key = (p["name"], float(p["rate"]))

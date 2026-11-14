@@ -69,6 +69,7 @@ class Tenant(Base):
     delivery_fee: Mapped[Decimal] = mapped_column(Numeric(10, 2), default=Decimal("0"))  # default fee on new deliveries
     kiosk_token: Mapped[str] = mapped_column(String(40), default="", index=True)  # secret in the kiosk link ("" = none)
     kiosk_auto_send: Mapped[bool] = mapped_column(Boolean, default=False)  # kiosk orders go straight to the kitchen
+    prices_include_tax: Mapped[bool] = mapped_column(Boolean, default=False)  # menu prices are what the guest pays
 
 
 class User(Base):
@@ -162,6 +163,8 @@ class Order(Base):
     customer_phone: Mapped[str] = mapped_column(String(40), default="")
     customer_gstin: Mapped[str] = mapped_column(String(15), default="")  # B2B invoice: the buyer's GSTIN / tax ID
     customer_id: Mapped[str | None] = mapped_column(ForeignKey("customers.id", ondelete="SET NULL"), nullable=True, index=True)
+    # Menu prices on this check already include tax (snapshot of the restaurant setting; null = not decided yet)
+    tax_inclusive: Mapped[bool | None] = mapped_column(Boolean, nullable=True)
     # In-house delivery (channel "delivery")
     delivery_address: Mapped[str] = mapped_column(Text, default="")
     delivery_note: Mapped[str] = mapped_column(String(200), default="")

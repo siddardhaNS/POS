@@ -438,6 +438,7 @@ class SettingsIn(BaseModel):
     auto_print_kot: bool | None = None
     auto_print_receipt: bool | None = None
     invoice_prefix: str | None = Field(default=None, max_length=12, pattern=r"^[A-Za-z0-9-]*$")
+    prices_include_tax: bool | None = None
     loyalty_enabled: bool | None = None
     loyalty_earn_per: float | None = Field(default=None, gt=0, le=1_000_000)
     loyalty_point_value: float | None = Field(default=None, ge=0, le=1000)

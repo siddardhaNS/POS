@@ -72,7 +72,8 @@ def guest_view(token: str, db: Session = Depends(get_db)):
     asks = db.scalars(select(ServiceRequest.kind).where(ServiceRequest.table_id == t.id, ServiceRequest.status == "open")).all()
     return {
         "restaurant": {"name": tenant.name, "location_name": tenant.location_name or "", "currency": tenant.currency,
-                       "tax_label": tenant.tax_label, "tax_rate": float(tenant.tax_rate), "auto_send": tenant.qr_auto_send},
+                       "tax_label": tenant.tax_label, "tax_rate": float(tenant.tax_rate), "auto_send": tenant.qr_auto_send,
+                       "prices_include_tax": tenant.prices_include_tax},
         "table": {"name": t.name, "seats": t.seats},
         "menu": [c for c in menu if c["items"]],
         "check": check_out(o),

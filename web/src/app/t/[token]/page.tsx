@@ -19,7 +19,7 @@ interface Cat { id: string; name: string; items: Item[] }
 interface CheckLine { name: string; qty: number; modifiers: string[]; note: string; line_total: number; sent: boolean; done: boolean }
 interface Check { number: number; subtotal: number; discount: number; tax: number; due: number; paid: number; balance: number; items: CheckLine[] }
 interface View {
-  restaurant: { name: string; location_name: string; currency: "INR" | "USD"; tax_label: string; tax_rate: number; auto_send: boolean };
+  restaurant: { name: string; location_name: string; currency: "INR" | "USD"; tax_label: string; tax_rate: number; auto_send: boolean; prices_include_tax?: boolean };
   table: { name: string; seats: number };
   menu: Cat[];
   check: Check | null;
@@ -172,7 +172,7 @@ export default function GuestTable() {
             <ReceiptText className="size-4" />{asked.has("bill") ? "Bill on its way" : "Ask for the bill"}
           </button>
         </div>
-        <p className="mt-2 text-center text-xs text-muted-foreground">Prices before {v.restaurant.tax_label || "tax"}. {v.restaurant.auto_send ? "Orders go straight to the kitchen." : "Your server confirms each order."}</p>
+        <p className="mt-2 text-center text-xs text-muted-foreground">{v.restaurant.prices_include_tax ? `Prices include ${v.restaurant.tax_label || "tax"}.` : `Prices before ${v.restaurant.tax_label || "tax"}.`} {v.restaurant.auto_send ? "Orders go straight to the kitchen." : "Your server confirms each order."}</p>
       </main>
 
       {cartCount > 0 && !sheet && (

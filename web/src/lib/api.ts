@@ -30,6 +30,7 @@ export interface Tenant {
   loyalty_point_value?: number;
   loyalty_min_redeem?: number;
   delivery_fee?: number;
+  prices_include_tax?: boolean;
   /** Optional modules turned on for this restaurant by Tiffin (online, reports_plus, printing, menu_scan). */
   modules?: string[];
   /** Multi-location: the business this outlet belongs to, and the outlet name (e.g. "Downtown"). */

@@ -63,7 +63,7 @@ export function printReceipt(o: Order, t: Tenant | null | undefined, fmt: (v: nu
     ${o.invoice_no && kind !== "bill" ? `<div class="r"><span>Invoice</span><span>${esc(o.invoice_no)}</span></div>` : ""}
     ${o.customer_gstin ? `<div>${o.customer_name ? `Bill to: ${esc(o.customer_name)}<br>` : ""}GSTIN: ${esc(o.customer_gstin)}</div>` : ""}
     <hr>${lines}<hr>
-    <div class="r"><span>Subtotal</span><span>${fmt(o.subtotal)}</span></div>
+    <div class="r"><span>${o.tax_inclusive ? "Value before tax" : "Subtotal"}</span><span>${fmt(o.subtotal)}</span></div>
     ${o.discount.amount ? `<div class="r"><span>Discount${o.discount.reason ? ` (${esc(o.discount.reason)})` : ""}</span><span>−${fmt(o.discount.amount)}</span></div>` : ""}
     ${o.promotion ? `<div class="r"><span>Offer (${esc(o.promotion.name)})</span><span>−${fmt(o.promotion.amount)}</span></div>` : ""}
     ${taxLines(o, t?.tax_label || "Tax").map(([l, v]) => `<div class="r"><span>${esc(l)}</span><span>${fmt(v)}</span></div>`).join("")}

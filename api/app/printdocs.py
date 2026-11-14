@@ -120,7 +120,7 @@ def check_doc(t: Tenant, order: Order, kind: str = "receipt") -> dict:
             lines.append(T(f"  + {m.get('name', '')}" + (f" ({fmt(m['price'])})" if m.get("price") else "")))
         if li["note"]:
             lines.append(T(f"  “{li['note']}”"))
-    lines += [HR, LR("Subtotal", fmt(o["subtotal"]))]
+    lines += [HR, LR("Value before tax" if o["tax_inclusive"] else "Subtotal", fmt(o["subtotal"]))]
     d = o["discount"]
     if d["amount"]:
         lines.append(LR("Discount" + (f" ({d['reason']})" if d["reason"] else ""), "−" + fmt(d["amount"])))

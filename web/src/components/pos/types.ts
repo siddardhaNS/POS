@@ -41,7 +41,7 @@ export interface Order {
   due: number; paid: number; refunded: number; balance: number; payment_method: string; void_reason: string;
   opened_at: string; closed_at: string | null; items: Line[]; payments: PaymentRow[]; change?: number;
   credit_notes?: CreditNote[];
-  customer_gstin?: string; invoice_no?: string; customer_id?: string | null;
+  customer_gstin?: string; invoice_no?: string; customer_id?: string | null; tax_inclusive?: boolean;
   promotion?: { id: string; name: string; amount: number } | null;
   loyalty?: { points: number; value: number; min_redeem: number } | null;
   delivery?: Delivery | null;

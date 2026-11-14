@@ -44,6 +44,7 @@ COLUMNS: dict[str, list[tuple[str, str, str | None]]] = {
         ("delivery_fee", "NUMERIC(10,2) NOT NULL DEFAULT 0", None),
         ("kiosk_token", "VARCHAR(40) NOT NULL DEFAULT ''", None),
         ("kiosk_auto_send", "BOOLEAN NOT NULL DEFAULT FALSE", None),
+        ("prices_include_tax", "BOOLEAN NOT NULL DEFAULT FALSE", None),
     ],
     "suppliers": [
         ("payment_terms_days", "INTEGER NOT NULL DEFAULT 15", None),
@@ -69,6 +70,7 @@ COLUMNS: dict[str, list[tuple[str, str, str | None]]] = {
         ("customer_phone", "VARCHAR(40) NOT NULL DEFAULT ''", None),
         ("customer_gstin", "VARCHAR(15) NOT NULL DEFAULT ''", None),
         ("customer_id", "VARCHAR(36) NULL REFERENCES customers(id) ON DELETE SET NULL", None),
+        ("tax_inclusive", "BOOLEAN NULL", None),
         ("delivery_address", "TEXT NOT NULL DEFAULT ''", None),
         ("delivery_note", "VARCHAR(200) NOT NULL DEFAULT ''", None),
         ("delivery_fee", "NUMERIC(10,2) NOT NULL DEFAULT 0", None),

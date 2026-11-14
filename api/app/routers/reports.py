@@ -337,7 +337,7 @@ def tax_detail(db: Session, tenant_ids: list[str], p: Period) -> dict:
         f = taxes.discount_factor(o)
         for i in o.items:
             rate = taxes.line_rate(i, t.tax_rate)
-            net = line_total(i) * f
+            net = taxes.line_base(i, o, t.tax_rate, line_total) * f
             row = hsn.setdefault((i.hsn or "", float(rate) * 100), [0, Decimal(0), Decimal(0)])
             row[0] += i.qty
             row[1] += net

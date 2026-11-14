@@ -13,7 +13,7 @@ interface Opt { id: string; name: string; price: number; available?: boolean }
 interface Group { id: string; name: string; min: number; max: number; options: Opt[] }
 interface Item { id: string; name: string; price: number; is_veg: boolean; modifiers: Group[]; description?: string; tags?: string[]; allergens?: string[] }
 interface Cat { id: string; name: string; items: Item[] }
-interface View { restaurant: { name: string; location_name: string; currency: "INR" | "USD"; tax_label: string; auto_send: boolean }; menu: Cat[] }
+interface View { restaurant: { name: string; location_name: string; currency: "INR" | "USD"; tax_label: string; auto_send: boolean; prices_include_tax?: boolean }; menu: Cat[] }
 interface CartLine { key: string; item: Item; qty: number; options: Opt[] }
 interface Placed { number: number; due: number; sent_to_kitchen: boolean }
 
@@ -105,7 +105,7 @@ export default function Kiosk() {
               <span className="w-28 text-right font-mono text-lg">{fmt(unit(l) * l.qty)}</span>
             </div>
           ))}
-          <div className="flex justify-between text-xl font-semibold"><span>Total before {v.restaurant.tax_label || "tax"}</span><span className="font-mono">{fmt(total)}</span></div>
+          <div className="flex justify-between text-xl font-semibold"><span>{v.restaurant.prices_include_tax ? "Total" : `Total before ${v.restaurant.tax_label || "tax"}`}</span><span className="font-mono">{fmt(total)}</span></div>
           <label className="mt-2 block space-y-2"><span className="text-lg font-medium">Your name, so we can call you</span>
             <input value={name} onChange={(e) => setName(e.target.value.slice(0, 40))} autoFocus className="h-16 w-full rounded-2xl border border-input bg-card px-5 text-2xl" /></label>
           <div className="mt-auto grid grid-cols-[auto_1fr] gap-3 pt-4">

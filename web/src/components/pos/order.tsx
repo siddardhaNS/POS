@@ -281,8 +281,8 @@ export function OrderScreen() {
         </div>
 
         <div className="space-y-1.5 border-t border-border px-5 py-4 text-sm">
-          <Row l="Subtotal" v={fmt(order.subtotal)} />
-          {order.discount.amount > 0 && <Row l={`Discount · ${order.discount.kind === "percent" ? `${order.discount.value}%` : "fixed"} · ${order.discount.reason}`} v={`−${fmt(order.discount.amount)}`} accent />}
+          <Row l={order.tax_inclusive ? "Value before tax" : "Subtotal"} v={fmt(order.subtotal)} />
+          {order.discount.amount > 0 && <Row l={`Discount · ${order.discount.kind} === "percent" ? `${order.discount.value}%` : "fixed"} · ${order.discount.reason}`} v={`−${fmt(order.discount.amount)}`} accent />}
           {order.promotion && <Row l={`Offer · ${order.promotion.name}`} v={`−${fmt(order.promotion.amount)}`} accent />}
           {taxLines(order, s.tenant?.tax_label || "Tax").map(([l, v]) => <Row key={l} l={l} v={fmt(v)} />)}
           {!!order.delivery?.fee && <Row l="Delivery fee" v={fmt(order.delivery.fee)} />}
@@ -501,7 +501,8 @@ function DiscountDialog({ order, onClose, onUpdate }: { order: Order; onClose: (
   const [value, setValue] = useState(order.discount.kind ? String(order.discount.value) : "10");
   const [reason, setReason] = useState(order.discount.reason);
   const v = Number(value) || 0;
-  const preview = kind === "percent" ? order.subtotal * v / 100 : Math.min(v, order.subtotal);
+  const base = order.items.reduce((a, l) => a + l.line_total, 0); // menu prices (with tax when prices include it)
+  const preview = kind === "percent" ? base * v / 100 : Math.min(v, base);
 
   async function apply(k: "" | "percent" | "amount") {
     const o = await run(api<Order>(`/orders/${order.id}/discount`, { body: { kind: k, value: k ? v : 0, reason: k ? reason : "" } }),
@@ -514,7 +515,7 @@ function DiscountDialog({ order, onClose, onUpdate }: { order: Order; onClose: (
       <DialogContent className="gap-5 sm:max-w-md">
         <DialogHeader>
           <DialogTitle className="text-xl">Discount the check</DialogTitle>
-          <DialogDescription>Applied before tax on a subtotal of {fmt(order.subtotal)}.</DialogDescription>
+          <DialogDescription>{order.tax_inclusive ? `Taken off the menu prices (${fmt(base)}); tax is worked out on what's left.` : `Applied before tax on a subtotal of ${fmt(order.subtotal)}.`}</DialogDescription>
         </DialogHeader>
         <Seg value={kind} onChange={setKind} options={[["percent", "Percent"], ["amount", "Fixed amount"]]} />
         {kind === "percent" && (
@@ -932,7 +933,7 @@ function PayPanel({ order, title, onBack, onUpdate, onDone }: {
           ))}
         </div>
         <div className="mt-4 space-y-1.5 border-t border-dashed border-border pt-4 text-sm">
-          <Row l="Subtotal" v={fmt(order.subtotal)} />
+          <Row l={order.tax_inclusive ? "Value before tax" : "Subtotal"} v={fmt(order.subtotal)} />
           {order.discount.amount > 0 && <Row l={`Discount · ${order.discount.reason}`} v={`−${fmt(order.discount.amount)}`} accent />}
           {order.promotion && <Row l={`Offer · ${order.promotion.name}`} v={`−${fmt(order.promotion.amount)}`} accent />}
           {taxLines(order, s.tenant?.tax_label || "Tax").map(([l, v]) => <Row key={l} l={l} v={fmt(v)} />)}

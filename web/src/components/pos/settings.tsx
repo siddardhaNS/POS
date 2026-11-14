@@ -73,7 +73,7 @@ function TenantForm({ tab }: { tab: "restaurant" | "tax" | "loyalty" | "receipts
       body: {
         name: t.name, phone: t.phone, address: t.address, city: t.city, tax_id: t.tax_id, timezone: t.timezone,
         ...(hasClasses ? {} : { tax_label: t.tax_label, tax_rate: (Number(rate) || 0) / 100 }), tips_enabled: t.tips_enabled,
-        invoice_prefix: t.invoice_prefix ?? "",
+        invoice_prefix: t.invoice_prefix ?? "", prices_include_tax: !!t.prices_include_tax,
         loyalty_enabled: !!t.loyalty_enabled, loyalty_earn_per: t.loyalty_earn_per || 1, loyalty_point_value: t.loyalty_point_value ?? 0,
         loyalty_min_redeem: t.loyalty_min_redeem ?? 0, delivery_fee: t.delivery_fee ?? 0,
         receipt_footer: t.receipt_footer, auto_print_kot: t.auto_print_kot, auto_print_receipt: t.auto_print_receipt,
@@ -125,6 +125,8 @@ function TenantForm({ tab }: { tab: "restaurant" | "tax" | "loyalty" | "receipts
             <Field label="Invoice number prefix" hint={`Paid checks get the next number of the financial year, e.g. ${[(t.invoice_prefix ?? "").toUpperCase(), s.tenant?.market === "IN" ? "2026-27" : "2026", "00001"].filter(Boolean).join("/")}`}>
               <Input value={t.invoice_prefix ?? ""} maxLength={12} placeholder="Optional, e.g. BLR" onChange={(e) => set({ invoice_prefix: e.target.value.replace(/[^A-Za-z0-9-]/g, "") })} className="h-11 font-mono" /></Field>
           </div>
+          <Toggle on={!!t.prices_include_tax} onChange={(v) => set({ prices_include_tax: v })} label="Menu prices include tax"
+            hint="On: the price on the menu is what the guest pays, and tax is worked out inside it (common for cafés and quick service). Off: tax is added on top. Open checks with payments keep the way they started." />
           <Toggle on={!!t.tips_enabled} onChange={(v) => set({ tips_enabled: v })} label="Ask for tips" hint="Show tip options when taking payment, and a tip line on printed bills." />
         </>
       )}

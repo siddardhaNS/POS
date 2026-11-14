@@ -39,7 +39,8 @@ def kiosk_view(token: str, db: Session = Depends(get_db)):
              "items": [i for i in c["items"] if i["available"] and (not i["channels"] or "kiosk" in i["channels"])]}
             for c in _menu(as_ctx(t), db, "kiosk") if c["open_now"]]
     return {"restaurant": {"name": t.name, "location_name": t.location_name or "", "currency": t.currency,
-                           "tax_label": t.tax_label, "auto_send": t.kiosk_auto_send},
+                           "tax_label": t.tax_label, "auto_send": t.kiosk_auto_send,
+                           "prices_include_tax": t.prices_include_tax},
             "menu": [c for c in menu if c["items"]]}
 
 

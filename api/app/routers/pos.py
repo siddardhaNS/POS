@@ -53,8 +53,19 @@ def recompute(o: Order, tax_rate: Decimal) -> None:
     else:
         disc = Decimal(0)
     disc = min(disc + Decimal(o.promotion_amount or 0), sub)  # an offer stacks with a manual discount
-    o.subtotal, o.discount_amount = q(sub), q(disc)
-    o.tax = taxes.order_tax(o, tax_rate, line_total)  # per line: dishes can sit in different tax classes
+    if o.tax_inclusive:
+        # Menu prices include tax: the guest owes the prices less the discount. Tax is taken out of each line, and
+        # subtotal / discount are stored before tax, so subtotal - discount + tax is still what's due (reports,
+        # tax returns and refunds all keep working off the same figures).
+        f = (1 - disc / sub) if sub else Decimal(1)
+        gross_due = q(sub - disc)
+        o.tax = q(sum((line_total(i) * f * taxes.line_rate(i, tax_rate) / (1 + taxes.line_rate(i, tax_rate))
+                       for i in o.items), Decimal(0)))
+        o.subtotal = q(sum((line_total(i) / (1 + taxes.line_rate(i, tax_rate)) for i in o.items), Decimal(0)))
+        o.discount_amount = max(o.subtotal + o.tax - gross_due, Decimal(0))
+    else:
+        o.subtotal, o.discount_amount = q(sub), q(disc)
+        o.tax = taxes.order_tax(o, tax_rate, line_total)  # per line: dishes can sit in different tax classes
     o.tip = q(sum((p.tip for p in o.payments if p.kind == "payment"), Decimal(0)))
     o.total = o.subtotal - o.discount_amount + o.tax + Decimal(o.delivery_fee or 0) + o.tip
 
@@ -79,7 +90,7 @@ def order_out(o: Order) -> dict:
     return {
         "id": o.id, "number": o.number, "table_id": o.table_id, "table": o.table.name if o.table else None,
         "channel": o.channel, "status": o.status, "customer_name": o.customer_name,
-        "customer_phone": o.customer_phone, "customer_gstin": o.customer_gstin, "customer_id": o.customer_id, "guests": o.guests, "invoice_no": o.invoice_no,
+        "customer_phone": o.customer_phone, "customer_gstin": o.customer_gstin, "customer_id": o.customer_id, "tax_inclusive": bool(o.tax_inclusive), "guests": o.guests, "invoice_no": o.invoice_no,
         "tax_breakdown": taxes.breakdown(o, o.tenant.tax_rate, o.tenant.tax_label, line_total) if o.items else [],
         "subtotal": money(o.subtotal), "tax": money(o.tax), "tip": money(o.tip), "total": money(o.total),
         "discount": {"kind": o.discount_kind, "value": money(o.discount_value),
@@ -131,8 +142,10 @@ def next_number(db: Session, model, tenant_id: str) -> int:
 def settle(db: Session, tenant: Tenant, o: Order) -> None:
     """Totals, then the offer for the new subtotal, then totals again with it."""
     db.flush()
+    if o.tax_inclusive is None and not o.paid:  # the check takes the restaurant's price setting once
+        o.tax_inclusive = bool(tenant.prices_include_tax)
     recompute(o, tenant.tax_rate)
-    promo.refresh(db, tenant, o, Decimal(o.subtotal))
+    promo.refresh(db, tenant, o, sum((line_total(i) for i in o.items), Decimal(0)))  # menu prices, as the guest sees them
     recompute(o, tenant.tax_rate)
 
 

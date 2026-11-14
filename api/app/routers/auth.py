@@ -31,6 +31,7 @@ def tenant_out(t: Tenant | None) -> dict | None:
         "loyalty_enabled": t.loyalty_enabled, "loyalty_earn_per": float(t.loyalty_earn_per or 0),
         "loyalty_point_value": float(t.loyalty_point_value or 0), "loyalty_min_redeem": t.loyalty_min_redeem,
         "delivery_fee": float(t.delivery_fee or 0),
+        "prices_include_tax": t.prices_include_tax,
     }
 
 
