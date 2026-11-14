@@ -22,9 +22,11 @@ router = APIRouter(tags=["backoffice"])
 
 # ---------- Menu ----------
 
-def group_out(g: ModifierGroup) -> dict:
+def group_out(g: ModifierGroup, avail: dict[str, bool] | None = None) -> dict:
+    """avail: menu item id -> available, so combo choices whose dish is sold out show as unavailable."""
     return {"id": g.id, "name": g.name, "min": g.min_select, "max": g.max_select,
-            "options": [{"id": o.id, "name": o.name, "price": money(o.price)} for o in g.options]}
+            "options": [{"id": o.id, "name": o.name, "price": money(o.price), "menu_item_id": o.menu_item_id,
+                         "available": (avail or {}).get(o.menu_item_id, True) if o.menu_item_id else True} for o in g.options]}
 
 
 ALLERGENS = ("gluten", "milk", "eggs", "peanuts", "tree_nuts", "soy", "sesame", "mustard", "fish", "crustaceans",
@@ -32,12 +34,13 @@ ALLERGENS = ("gluten", "milk", "eggs", "peanuts", "tree_nuts", "soy", "sesame", 
 NUTRIENTS = ("kcal", "protein", "carbs", "fat")
 
 
-def item_out(m: MenuItem, groups: list[ModifierGroup] | None = None) -> dict:
+def item_out(m: MenuItem, groups: list[ModifierGroup] | None = None, avail: dict[str, bool] | None = None) -> dict:
     return {"id": m.id, "category_id": m.category_id, "name": m.name, "price": money(m.price),
             "is_veg": m.is_veg, "station": m.station, "available": m.available,
             "description": m.description or "", "tags": m.tags or [], "allergens": m.allergens or [],
             "nutrition": m.nutrition or {}, "channels": m.channels or [],
-            "modifiers": [group_out(g) for g in (groups or [])]}
+            "is_combo": any(o.menu_item_id for g in (groups or []) for o in g.options),
+            "modifiers": [group_out(g, avail) for g in (groups or [])]}
 
 
 @router.get("/menu")
@@ -58,10 +61,11 @@ def _menu(ctx: Ctx, db: Session, channel: str = ""):
     for g in db.scalars(select(ModifierGroup).where(ModifierGroup.tenant_id == ctx.tenant_id)
                         .options(selectinload(ModifierGroup.options)).order_by(ModifierGroup.sort)):
         groups.setdefault(g.menu_item_id, []).append(g)
+    avail = {m.id: m.available for m in items}
     pricing = menurules.Pricing(db, ctx.tenant, channel) if channel else None
 
     def priced(m: MenuItem) -> dict:
-        out = item_out(m, groups.get(m.id))
+        out = item_out(m, groups.get(m.id), avail)
         if pricing:
             p, name = pricing.price(m)
             out.update(base_price=money(m.price), price=money(p), price_list=name)
@@ -214,6 +218,7 @@ def edit_item(iid: str, body: ItemPatch, ctx: Ctx = Depends(require("menu_edit")
 class OptionIn(BaseModel):
     name: str = Field(min_length=1, max_length=80)
     price: float = Field(default=0, ge=0, le=1_000_000)
+    menu_item_id: str | None = Field(default=None, max_length=36)  # combo slot: the dish this choice serves
 
 
 class GroupIn(BaseModel):
@@ -236,6 +241,11 @@ def set_modifiers(iid: str, body: ModifiersIn, ctx: Ctx = Depends(require("menu_
             raise HTTPException(422, f"{g.name}: minimum can't be more than maximum")
         if g.min > len(g.options):
             raise HTTPException(422, f"{g.name}: not enough options for the minimum")
+    linked = {o.menu_item_id for g in body.groups for o in g.options if o.menu_item_id}
+    if m.id in linked:
+        raise HTTPException(422, "A combo can't include itself")
+    if linked and len(set(db.scalars(select(MenuItem.id).where(MenuItem.tenant_id == ctx.tenant_id, MenuItem.id.in_(linked))))) != len(linked):
+        raise HTTPException(404, "A dish in this combo isn't on the menu any more")
     for old in db.scalars(select(ModifierGroup).where(ModifierGroup.menu_item_id == m.id, ModifierGroup.tenant_id == ctx.tenant_id)):
         db.delete(old)
     db.flush()
@@ -243,7 +253,8 @@ def set_modifiers(iid: str, body: ModifiersIn, ctx: Ctx = Depends(require("menu_
     for gi, g in enumerate(body.groups):
         grp = ModifierGroup(tenant_id=ctx.tenant_id, menu_item_id=m.id, name=g.name.strip(), min_select=g.min,
                             max_select=g.max, sort=gi)
-        grp.options = [ModifierOption(tenant_id=ctx.tenant_id, name=o.name.strip(), price=Decimal(str(o.price)), sort=oi)
+        grp.options = [ModifierOption(tenant_id=ctx.tenant_id, name=o.name.strip(), price=Decimal(str(o.price)), sort=oi,
+                                      menu_item_id=o.menu_item_id or None)
                        for oi, o in enumerate(g.options)]
         db.add(grp)
         out.append(grp)

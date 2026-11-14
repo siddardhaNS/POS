@@ -230,6 +230,8 @@ class ModifierOption(Base):
     name: Mapped[str] = mapped_column(String(80))
     price: Mapped[Decimal] = mapped_column(Numeric(10, 2), default=Decimal("0"))
     sort: Mapped[int] = mapped_column(Integer, default=0)
+    # Combo slot: picking this option serves that dish (its recipe is used for stock; sold out = can't pick)
+    menu_item_id: Mapped[str | None] = mapped_column(ForeignKey("menu_items.id", ondelete="SET NULL"), nullable=True)
 
 
 class Payment(Base):

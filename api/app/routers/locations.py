@@ -175,6 +175,7 @@ def copy_menu(db: Session, src: Tenant, dst: Tenant, mode: str) -> dict:
 
     src_items = db.scalars(select(MenuItem).where(MenuItem.tenant_id == src.id).order_by(MenuItem.sort)).all()
     dst_items = {m.name.lower(): m for m in db.scalars(select(MenuItem).where(MenuItem.tenant_id == dst.id))}
+    src_names = {m.id: m.name.lower() for m in src_items}
     src_groups: dict[str, list[ModifierGroup]] = {}
     for g in db.scalars(select(ModifierGroup).where(ModifierGroup.tenant_id == src.id)
                         .options(selectinload(ModifierGroup.options)).order_by(ModifierGroup.sort)):
@@ -187,7 +188,10 @@ def copy_menu(db: Session, src: Tenant, dst: Tenant, mode: str) -> dict:
     def clone_group(g: ModifierGroup, item: MenuItem) -> ModifierGroup:
         n = ModifierGroup(tenant_id=dst.id, menu_item_id=item.id, name=g.name, min_select=g.min_select,
                           max_select=g.max_select, sort=g.sort)
-        n.options = [ModifierOption(tenant_id=dst.id, name=o.name, price=o.price, sort=o.sort) for o in g.options]
+        # Combo choices link to the dish with the same name at the destination, when it has one.
+        n.options = [ModifierOption(tenant_id=dst.id, name=o.name, price=o.price, sort=o.sort,
+                                    menu_item_id=getattr(dst_items.get(src_names.get(o.menu_item_id, "")), "id", None))
+                     for o in g.options]
         return n
 
     for m in src_items:
@@ -196,9 +200,10 @@ def copy_menu(db: Session, src: Tenant, dst: Tenant, mode: str) -> dict:
             d = MenuItem(tenant_id=dst.id, category_id=cat_map[m.category_id].id, name=m.name, price=m.price,
                          is_veg=m.is_veg, station=m.station, available=m.available, sort=m.sort,
                          description=m.description, tags=list(m.tags or []), allergens=list(m.allergens or []),
-                         nutrition=dict(m.nutrition or {}))
+                         nutrition=dict(m.nutrition or {}), channels=list(m.channels or []))
             db.add(d)
             db.flush()
+            dst_items[m.name.lower()] = d
             for g in src_groups.get(m.id, []):
                 db.add(clone_group(g, d))
                 stats["groups_added"] += 1

@@ -1,6 +1,6 @@
 import type { Nutrition } from "@/lib/menu";
 
-export interface ModOption { id: string; name: string; price: number }
+export interface ModOption { id: string; name: string; price: number; /** Combo choice: the dish it serves. */ menu_item_id?: string | null; available?: boolean }
 export interface ModGroup { id: string; name: string; min: number; max: number; options: ModOption[] }
 export interface MenuItem {
   id: string; category_id: string; name: string; price: number; is_veg: boolean; station: string; available: boolean;
@@ -10,6 +10,8 @@ export interface MenuItem {
   channels?: MenuChannel[];
   /** Set when the menu is fetched for a channel: the base price before a price list changed it. */
   base_price?: number; price_list?: string;
+  /** Some options serve another dish (a combo or meal deal). */
+  is_combo?: boolean;
 }
 export type MenuChannel = "dine_in" | "takeaway" | "delivery" | "online" | "qr";
 export interface Schedule { days?: number[]; from?: string; to?: string }

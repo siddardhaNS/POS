@@ -120,6 +120,7 @@ export function MenuAdmin() {
             <div key={m.id} onClick={() => setSel({ ...m })} role="button"
               className={cn("grid cursor-pointer grid-cols-[1fr_90px_90px_60px] items-center gap-3 border-b border-border/60 px-5 py-3.5 last:border-0 hover:bg-muted/40", sel?.id === m.id && "bg-accent/60")}>
               <span className="flex flex-wrap items-center gap-x-2.5 gap-y-1 font-medium"><VegDot veg={m.is_veg} />{m.name}
+                {m.is_combo && <span className="rounded bg-saffron/20 px-1.5 text-[11px] font-semibold text-saffron-deep">Combo</span>}
                 {m.modifiers.length > 0 && <span className="rounded bg-accent px-1.5 text-[11px] font-medium text-accent-foreground">{m.modifiers.length} option set{m.modifiers.length > 1 ? "s" : ""}</span>}
                 {!!m.allergens?.length && <span title={`Contains ${allergenList(m.allergens)}`} className="rounded bg-chili/10 px-1.5 text-[11px] font-medium text-chili">{m.allergens.length} allergen{m.allergens.length > 1 ? "s" : ""}</span>}
                 {m.tags?.slice(0, 2).map((t) => <span key={t} className="rounded bg-muted px-1.5 text-[11px] font-medium text-muted-foreground">{t}</span>)}</span>
@@ -136,7 +137,7 @@ export function MenuAdmin() {
 
       <MenuImport open={importing} onOpenChange={setImporting} onDone={reload} />
       {pricing && menu && <PriceListsDialog menu={menu} edit={edit} onClose={() => { setPricing(false); reload(); }} />}
-      {options && <ModifierEditor item={options} onClose={() => setOptions(null)} onSaved={(m) => { setOptions(null); setSel(m); reload(); }} />}
+      {options && menu && <ModifierEditor item={options} menu={menu} onClose={() => setOptions(null)} onSaved={(m) => { setOptions(null); setSel(m); reload(); }} />}
       <aside className={cn("border-t border-border bg-card p-6 lg:border-l lg:border-t-0", !sel && "hidden lg:block")}>
         {!sel ? (
           <div className="grid h-full place-items-center text-center text-sm text-muted-foreground">Select an item to edit its price, station and availability.</div>
@@ -407,13 +408,14 @@ export function Staff() {
 
 /* ---------------- Modifier editor ---------------- */
 
-type DraftGroup = { name: string; required: boolean; max: number; options: { name: string; price: string }[] };
+type DraftGroup = { name: string; required: boolean; max: number; options: { name: string; price: string; menu_item_id: string }[] };
 
-function ModifierEditor({ item, onClose, onSaved }: { item: MenuItem; onClose: () => void; onSaved: (m: MenuItem) => void }) {
+function ModifierEditor({ item, menu, onClose, onSaved }: { item: MenuItem; menu: Category[]; onClose: () => void; onSaved: (m: MenuItem) => void }) {
   const { s } = usePos();
   const [groups, setGroups] = useState<DraftGroup[]>(item.modifiers.map((g: ModGroup) => ({
-    name: g.name, required: g.min > 0, max: g.max, options: g.options.map((o) => ({ name: o.name, price: o.price ? String(o.price) : "" })),
+    name: g.name, required: g.min > 0, max: g.max, options: g.options.map((o) => ({ name: o.name, price: o.price ? String(o.price) : "", menu_item_id: o.menu_item_id ?? "" })),
   })));
+  const dishes = menu.flatMap((c) => c.items).filter((x) => x.id !== item.id);
   const upd = (i: number, p: Partial<DraftGroup>) => setGroups((gs) => gs.map((g, j) => (j === i ? { ...g, ...p } : g)));
   const updOpt = (i: number, k: number, p: Partial<DraftGroup["options"][number]>) =>
     upd(i, { options: groups[i].options.map((o, j) => (j === k ? { ...o, ...p } : o)) });
@@ -422,7 +424,7 @@ function ModifierEditor({ item, onClose, onSaved }: { item: MenuItem; onClose: (
     const body = {
       groups: groups.map((g) => ({
         name: g.name.trim(), min: g.required ? 1 : 0, max: g.max,
-        options: g.options.filter((o) => o.name.trim()).map((o) => ({ name: o.name.trim(), price: Number(o.price) || 0 })),
+        options: g.options.filter((o) => o.name.trim()).map((o) => ({ name: o.name.trim(), price: Number(o.price) || 0, menu_item_id: o.menu_item_id || null })),
       })).filter((g) => g.name && g.options.length),
     };
     const m = await run(api<MenuItem>(`/menu/items/${item.id}/modifiers`, { method: "PUT", body }), `Options saved for ${item.name}`);
@@ -434,7 +436,7 @@ function ModifierEditor({ item, onClose, onSaved }: { item: MenuItem; onClose: (
       <DialogContent className="max-h-[90vh] gap-5 overflow-y-auto sm:max-w-2xl">
         <DialogHeader>
           <DialogTitle className="text-xl">Options for {item.name}</DialogTitle>
-          <DialogDescription>Group choices like Size or Spice level. Option prices are added to the item price ({s.tenant?.currency}).</DialogDescription>
+          <DialogDescription>Group choices like Size or Spice level. Option prices are added to the item price ({s.tenant?.currency}). For a combo or meal deal, link each choice to the dish it serves: the kitchen sees it, its recipe is used for stock, and it can&apos;t be picked while that dish is sold out.</DialogDescription>
         </DialogHeader>
         {groups.map((g, i) => (
           <div key={i} className="space-y-3 rounded-2xl border border-border p-4">
@@ -450,14 +452,23 @@ function ModifierEditor({ item, onClose, onSaved }: { item: MenuItem; onClose: (
             {g.options.map((o, k) => (
               <div key={k} className="flex gap-2">
                 <Input value={o.name} onChange={(e) => updOpt(i, k, { name: e.target.value })} placeholder="Option, e.g. Large" className="h-10 flex-1" maxLength={80} />
+                <select value={o.menu_item_id} aria-label="Serves dish"
+                  onChange={(e) => {
+                    const dish = dishes.find((x) => x.id === e.target.value);
+                    updOpt(i, k, { menu_item_id: e.target.value, ...(dish && !o.name.trim() ? { name: dish.name } : {}) });
+                  }}
+                  className={cn("h-10 w-36 rounded-lg border border-input bg-card px-2 text-sm", !o.menu_item_id && "text-muted-foreground")}>
+                  <option value="">No dish</option>
+                  {dishes.map((x) => <option key={x.id} value={x.id}>{x.name}</option>)}
+                </select>
                 <Input type="number" min={0} step="0.01" value={o.price} onChange={(e) => updOpt(i, k, { price: e.target.value })} placeholder="+ price" className="h-10 w-28 font-mono" />
                 <button onClick={() => upd(i, { options: g.options.filter((_, j) => j !== k) })} className="grid size-10 shrink-0 place-items-center rounded-lg bg-muted" aria-label="Remove option"><X className="size-4" /></button>
               </div>
             ))}
-            <button onClick={() => upd(i, { options: [...g.options, { name: "", price: "" }] })} className="text-sm font-medium text-saffron-deep">+ Add option</button>
+            <button onClick={() => upd(i, { options: [...g.options, { name: "", price: "", menu_item_id: "" }] })} className="text-sm font-medium text-saffron-deep">+ Add option</button>
           </div>
         ))}
-        <button onClick={() => setGroups([...groups, { name: "", required: false, max: 1, options: [{ name: "", price: "" }, { name: "", price: "" }] }])}
+        <button onClick={() => setGroups([...groups, { name: "", required: false, max: 1, options: [{ name: "", price: "", menu_item_id: "" }, { name: "", price: "", menu_item_id: "" }] }])}
           className="flex h-11 items-center justify-center gap-1.5 rounded-xl border-[1.5px] border-dashed border-border text-sm font-medium"><Plus className="size-4" />Add option group</button>
         <button onClick={save} className="h-12 rounded-xl bg-foreground font-semibold text-background">Save options</button>
       </DialogContent>

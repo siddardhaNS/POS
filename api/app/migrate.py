@@ -86,6 +86,9 @@ COLUMNS: dict[str, list[tuple[str, str, str | None]]] = {
     "floor_sections": [
         ("layout", "JSON NOT NULL DEFAULT '{}'", None),
     ],
+    "modifier_options": [
+        ("menu_item_id", "VARCHAR(36) NULL REFERENCES menu_items(id) ON DELETE SET NULL", None),
+    ],
     "kots": [
         ("bumped_at", "TIMESTAMPTZ NULL", "UPDATE kots SET bumped_at = created_at WHERE bumped"),
         ("course", "INTEGER NOT NULL DEFAULT 0", None),

@@ -347,14 +347,21 @@ def resolve_modifiers(db: Session, ctx: Ctx, m: MenuItem, ids: list[str]) -> lis
     known = {o.id for g in groups for o in g.options}
     if chosen - known:
         raise HTTPException(422, "Unknown option for this item")
+    linked = {o.menu_item_id for g in groups for o in g.options if o.menu_item_id and o.id in chosen}
+    gone = {mid: name for mid, name in db.execute(select(MenuItem.id, MenuItem.name).where(
+        MenuItem.tenant_id == ctx.tenant_id, MenuItem.id.in_(linked), MenuItem.available.is_(False))).all()} if linked else {}
     out = []
     for g in groups:
         picks = [o for o in g.options if o.id in chosen]
+        for o in picks:
+            if o.menu_item_id in gone:
+                raise HTTPException(409, f"{gone[o.menu_item_id]} is out of stock. Pick another {g.name.lower()}.")
         if len(picks) < g.min_select:
             raise HTTPException(422, f"Choose {g.name.lower()} for {m.name}")
         if g.max_select and len(picks) > g.max_select:
             raise HTTPException(422, f"Pick at most {g.max_select} for {g.name.lower()}")
-        out += [{"group": g.name, "name": o.name, "price": money(o.price)} for o in picks]
+        out += [{"group": g.name, "name": o.name, "price": money(o.price), **({"item_id": o.menu_item_id} if o.menu_item_id else {})}
+                for o in picks]
     return out
 
 

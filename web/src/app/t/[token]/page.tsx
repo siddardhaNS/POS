@@ -9,7 +9,7 @@ import { allergenList, nutritionLine, type Nutrition } from "@/lib/menu";
 
 /* Guest page for a table's QR code: menu, the table's check, order more, call a waiter, ask for the bill. */
 
-interface Opt { id: string; name: string; price: number }
+interface Opt { id: string; name: string; price: number; available?: boolean }
 interface Group { id: string; name: string; min: number; max: number; options: Opt[] }
 interface Item {
   id: string; name: string; price: number; is_veg: boolean; modifiers: Group[];
@@ -286,10 +286,10 @@ function OptionsSheet({ item, fmt, onClose, onAdd }: { item: Item; fmt: (n: numb
               {g.options.map((o) => {
                 const on = chosen[g.id]?.includes(o.id);
                 return (
-                  <button key={o.id} onClick={() => toggle(g, o)}
-                    className={cn("flex items-center justify-between rounded-xl px-3.5 py-3 text-left text-sm ring-1", on ? "bg-accent ring-2 ring-saffron" : "bg-card ring-border")}>
+                  <button key={o.id} onClick={() => toggle(g, o)} disabled={o.available === false}
+                    className={cn("flex items-center justify-between rounded-xl px-3.5 py-3 text-left text-sm ring-1 disabled:opacity-40", on ? "bg-accent ring-2 ring-saffron" : "bg-card ring-border")}>
                     <span className="flex items-center gap-2">{on && <Check className="size-4" />}{o.name}</span>
-                    {o.price > 0 && <span className="font-mono text-muted-foreground">+{fmt(o.price)}</span>}
+                    {o.available === false ? <span className="text-xs text-muted-foreground">Sold out</span> : o.price > 0 && <span className="font-mono text-muted-foreground">+{fmt(o.price)}</span>}
                   </button>
                 );
               })}

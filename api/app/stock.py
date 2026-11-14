@@ -116,7 +116,9 @@ def recipe_lines_for(db: Session, tenant_id: str, menu_ids: set[str]) -> dict[st
 def order_usage(db: Session, o: Order) -> dict[str, Decimal]:
     """Base-unit quantity of each stock item a check consumed: every line (comped food is still eaten) times
     qty, plus the recipes of the modifiers picked on it."""
-    lines = recipe_lines_for(db, o.tenant_id, {i.menu_item_id for i in o.items if i.menu_item_id})
+    # Combo choices (modifiers linked to a dish) use that dish's base recipe.
+    combo_ids = {str(m["item_id"]) for i in o.items for m in (i.modifiers or []) if m.get("item_id")}
+    lines = recipe_lines_for(db, o.tenant_id, {i.menu_item_id for i in o.items if i.menu_item_id} | combo_ids)
     need: dict[str, Decimal] = defaultdict(Decimal)
     for i in o.items:
         if not i.menu_item_id or i.qty <= 0:
@@ -125,6 +127,10 @@ def order_usage(db: Session, o: Order) -> dict[str, Decimal]:
         for r in lines.get(i.menu_item_id, []):
             if not r.modifier_option or (r.modifier_group, r.modifier_option) in picked:
                 need[r.stock_item_id] += D(r.qty) * i.qty
+        for m in i.modifiers or []:
+            for r in lines.get(str(m.get("item_id") or ""), []):
+                if not r.modifier_option:
+                    need[r.stock_item_id] += D(r.qty) * i.qty
     return need
 
 

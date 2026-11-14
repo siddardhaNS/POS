@@ -365,11 +365,11 @@ function ModifierDialog({ item, onClose, onAdd }: { item: MenuItem; onClose: () 
               </div>
               <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
                 {g.options.map((o) => (
-                  <button key={o.id} type="button" onClick={() => toggle(g.id, o.id)}
-                    className={cn("flex min-h-14 flex-col items-start justify-center rounded-xl px-3 py-2 text-left ring-1 ring-border transition",
+                  <button key={o.id} type="button" onClick={() => toggle(g.id, o.id)} disabled={o.available === false}
+                    className={cn("flex min-h-14 flex-col items-start justify-center rounded-xl px-3 py-2 text-left ring-1 ring-border transition disabled:opacity-40",
                       picked.has(o.id) ? "bg-foreground text-background ring-foreground" : "bg-card")}>
                     <span className="text-sm font-medium">{o.name}</span>
-                    {o.price > 0 && <span className="font-mono text-xs opacity-70">+{fmt(o.price)}</span>}
+                    {o.available === false ? <span className="text-xs">Sold out</span> : o.price > 0 && <span className="font-mono text-xs opacity-70">+{fmt(o.price)}</span>}
                   </button>
                 ))}
               </div>
