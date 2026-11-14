@@ -31,12 +31,12 @@ function Toggle({ on, onChange, label, hint }: { on: boolean; onChange: (v: bool
 export function SettingsScreen() {
   const { go, s } = usePos();
   const [pwOpen, setPwOpen] = useState(false);
-  const [tab, setTab] = useState<"restaurant" | "tax" | "receipts" | "printers">("restaurant");
+  const [tab, setTab] = useState<"restaurant" | "tax" | "loyalty" | "receipts" | "printers">("restaurant");
   return (
     <div className="flex h-full flex-col gap-5 overflow-auto p-5 md:p-7">
       <div className="flex flex-wrap items-center gap-3">
         <div className="overflow-x-auto">
-          <Seg value={tab} onChange={setTab} options={[["restaurant", "Restaurant"], ["tax", "Taxes & tips"], ["receipts", "Receipts"], ...(hasModule(s.tenant, "printing") ? [["printers", "Printers"] as ["printers", string]] : [])]} />
+          <Seg value={tab} onChange={setTab} options={[["restaurant", "Restaurant"], ["tax", "Taxes & tips"], ["loyalty", "Loyalty"], ["receipts", "Receipts"], ...(hasModule(s.tenant, "printing") ? [["printers", "Printers"] as ["printers", string]] : [])]} />
         </div>
         <button onClick={() => go("floorplan")} className="flex items-center gap-1.5 rounded-xl bg-card px-3.5 py-2 text-sm font-medium ring-1 ring-border">
           <Armchair className="size-4" />Tables are in Floor plan
@@ -53,7 +53,7 @@ export function SettingsScreen() {
   );
 }
 
-function TenantForm({ tab }: { tab: "restaurant" | "tax" | "receipts" }) {
+function TenantForm({ tab }: { tab: "restaurant" | "tax" | "loyalty" | "receipts" }) {
   const { s, fmt, setTenant } = usePos();
   const [t, setT] = useState<Tenant>(s.tenant!);
   const [rate, setRate] = useState(String(Math.round((s.tenant?.tax_rate ?? 0) * 100000) / 1000));
@@ -74,6 +74,8 @@ function TenantForm({ tab }: { tab: "restaurant" | "tax" | "receipts" }) {
         name: t.name, phone: t.phone, address: t.address, city: t.city, tax_id: t.tax_id, timezone: t.timezone,
         ...(hasClasses ? {} : { tax_label: t.tax_label, tax_rate: (Number(rate) || 0) / 100 }), tips_enabled: t.tips_enabled,
         invoice_prefix: t.invoice_prefix ?? "",
+        loyalty_enabled: !!t.loyalty_enabled, loyalty_earn_per: t.loyalty_earn_per || 1, loyalty_point_value: t.loyalty_point_value ?? 0,
+        loyalty_min_redeem: t.loyalty_min_redeem ?? 0,
         receipt_footer: t.receipt_footer, auto_print_kot: t.auto_print_kot, auto_print_receipt: t.auto_print_receipt,
       },
     }), "Settings saved");
@@ -122,6 +124,23 @@ function TenantForm({ tab }: { tab: "restaurant" | "tax" | "receipts" }) {
               <Input value={t.invoice_prefix ?? ""} maxLength={12} placeholder="Optional, e.g. BLR" onChange={(e) => set({ invoice_prefix: e.target.value.replace(/[^A-Za-z0-9-]/g, "") })} className="h-11 font-mono" /></Field>
           </div>
           <Toggle on={!!t.tips_enabled} onChange={(v) => set({ tips_enabled: v })} label="Ask for tips" hint="Show tip options when taking payment, and a tip line on printed bills." />
+        </>
+      )}
+      {tab === "loyalty" && (
+        <>
+          <Toggle on={!!t.loyalty_enabled} onChange={(v) => set({ loyalty_enabled: v })} label="Loyalty points"
+            hint="Guests with their phone on the check earn points on what they pay, and can pay with points next time." />
+          <div className="grid gap-4 sm:grid-cols-3">
+            <Field label={`Spend per point (${s.tenant?.currency})`} hint={`1 point for every ${fmt(t.loyalty_earn_per || 1)} paid`}>
+              <Input type="number" min={0.01} step="0.01" value={t.loyalty_earn_per ?? ""} onChange={(e) => set({ loyalty_earn_per: Number(e.target.value) })} className="h-11 font-mono" /></Field>
+            <Field label="Value of a point" hint={`100 points = ${fmt((t.loyalty_point_value ?? 0) * 100)}`}>
+              <Input type="number" min={0} step="0.01" value={t.loyalty_point_value ?? ""} onChange={(e) => set({ loyalty_point_value: Number(e.target.value) })} className="h-11 font-mono" /></Field>
+            <Field label="Use from (points)" hint="Smallest balance that can be spent">
+              <Input type="number" min={0} value={t.loyalty_min_redeem ?? ""} onChange={(e) => set({ loyalty_min_redeem: Number(e.target.value) })} className="h-11 font-mono" /></Field>
+          </div>
+          {!!t.loyalty_earn_per && !!t.loyalty_point_value && (
+            <p className="text-sm text-muted-foreground">Guests get back {((t.loyalty_point_value / t.loyalty_earn_per) * 100).toFixed(2).replace(/.?0+$/, "")}% of what they spend as points. Points aren&apos;t earned on the part paid with points, and refunds take back a matching share.</p>
+          )}
         </>
       )}
       {tab === "receipts" && (

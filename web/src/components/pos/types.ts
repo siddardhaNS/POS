@@ -43,6 +43,7 @@ export interface Order {
   credit_notes?: CreditNote[];
   customer_gstin?: string; invoice_no?: string; customer_id?: string | null;
   promotion?: { id: string; name: string; amount: number } | null;
+  loyalty?: { points: number; value: number; min_redeem: number } | null;
   tax_breakdown?: TaxPart[];
 }
 export interface TaxPart { name: string; rate: number; taxable: number; tax: number }

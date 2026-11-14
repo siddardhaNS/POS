@@ -17,7 +17,7 @@ export interface PosCtx {
 }
 
 export const METHOD_LABEL: Record<string, string> = {
-  cash: "Cash", card: "Card", upi: "UPI", tap: "Tap to pay", online: "Paid online", other: "Other", split: "Split", comp: "Comp",
+  cash: "Cash", card: "Card", upi: "UPI", tap: "Tap to pay", online: "Paid online", other: "Other", split: "Split", comp: "Comp", points: "Points",
 };
 
 /** Tender types offered at the register for this restaurant. */

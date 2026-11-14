@@ -4,7 +4,7 @@ import { useContext, useEffect, useMemo, useState } from "react";
 import { toast } from "sonner";
 import {
   ArrowLeft, ArrowRightLeft, BadgePercent, Ban, Banknote, Check, ChefHat, CircleCheck, CreditCard, Gift, Merge, Minus, MoreHorizontal, Percent,
-  Plus, Printer, QrCode, Search, Smartphone, Trash2, Users, Wallet,
+  Plus, Printer, QrCode, Search, Smartphone, Star, Trash2, Users, Wallet,
 } from "lucide-react";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
@@ -710,7 +710,7 @@ function VoidDialog({ order, title, onClose, onDone }: { order: Order; title: st
 
 /* ---------- Payments ---------- */
 
-const METHOD_ICON: Record<string, React.ComponentType<{ className?: string }>> = { cash: Banknote, card: CreditCard, upi: QrCode, tap: Smartphone, other: Wallet };
+const METHOD_ICON: Record<string, React.ComponentType<{ className?: string }>> = { cash: Banknote, card: CreditCard, upi: QrCode, tap: Smartphone, other: Wallet, points: Star };
 
 function quickCash(total: number, currency?: string) {
   const steps = currency === "INR" ? [10, 50, 100, 500] : [1, 5, 10, 20];
@@ -727,7 +727,9 @@ function PayPanel({ order, title, onBack, onUpdate, onDone }: {
 }) {
   const { s, fmt } = usePos();
   const tipsOn = !!s.tenant?.tips_enabled;
-  const methods = payMethods(s.tenant);
+  const pts = order.loyalty;
+  const canPoints = !!pts && pts.points >= pts.min_redeem && pts.value > 0;
+  const methods = [...payMethods(s.tenant), ...(canPoints ? ["points"] : [])];
   const [mode, setMode] = useState<"full" | "equal" | "seat" | "items" | "custom">("full");
   const [paySeat, setPaySeat] = useState<number | null>(null);
   const [parts, setParts] = useState(2);
@@ -752,7 +754,8 @@ function PayPanel({ order, title, onBack, onUpdate, onDone }: {
   } else if (mode === "custom") {
     amount = round2(Number(custom) || 0);
   }
-  const tip = tipsOn ? round2(amount * tipPct) : 0;
+  if (method === "points" && pts) amount = Math.min(amount, pts.value);
+  const tip = tipsOn && method !== "points" ? round2(amount * tipPct) : 0;
   const charge = round2(amount + tip);
   const cash = Number(tendered) || 0;
   const change = method === "cash" && cash ? round2(cash - charge) : 0;
@@ -889,6 +892,11 @@ function PayPanel({ order, title, onBack, onUpdate, onDone }: {
               );
             })}
           </div>
+          {pts && (
+            <p className="mt-3 text-sm text-muted-foreground">
+              {pts.points} loyalty points worth {fmt(pts.value)}{canPoints ? (method === "points" ? ` · this payment uses up to ${fmt(amount)}` : " · pick Points to use them") : ` · usable from ${pts.min_redeem} points`}
+            </p>
+          )}
           {method === "cash" && (
             <div className="mt-4 space-y-3 rounded-2xl bg-card p-4 ring-1 ring-border">
               <div className="text-sm font-medium">Cash received</div>

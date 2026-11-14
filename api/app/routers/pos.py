@@ -13,14 +13,15 @@ from sqlalchemy.orm import Session, selectinload
 from ..db import get_db
 from ..deps import PERMISSIONS, Ctx, has_module, needs, require
 from ..live import ALL_TOPICS, audit
-from .. import crm, menurules, phases, promo, taxes
-from ..models import CreditNote, DiningTable, Kot, LiveRev, MenuCategory, MenuItem, ModifierGroup, Order, OrderItem, Payment, ServiceRequest, Tenant, now
+from .. import crm, loyalty, menurules, phases, promo, taxes
+from ..models import CreditNote, Customer, DiningTable, Kot, LiveRev, MenuCategory, MenuItem, ModifierGroup, Order, OrderItem, Payment, ServiceRequest, Tenant, now
 from ..stock import deduct_for_order
 
 router = APIRouter(tags=["pos"])
 CENT = Decimal("0.01")
 ONLINE_CHANNELS = {"swiggy", "zomato", "doordash", "ubereats", "website"}
 METHODS = r"^(cash|card|upi|tap|online|other)$"
+PAY_METHODS = r"^(cash|card|upi|tap|online|other|points)$"  # points = loyalty points as a tender
 GSTIN = re.compile(r"^\d{2}[A-Z]{5}\d{4}[A-Z][1-9A-Z]Z[0-9A-Z]$")
 
 
@@ -83,6 +84,9 @@ def order_out(o: Order) -> dict:
         "subtotal": money(o.subtotal), "tax": money(o.tax), "tip": money(o.tip), "total": money(o.total),
         "discount": {"kind": o.discount_kind, "value": money(o.discount_value),
                      "amount": money(Decimal(o.discount_amount or 0) - Decimal(o.promotion_amount or 0)), "reason": o.discount_reason},
+        "loyalty": ({"points": o.customer.points, "value": money(loyalty.value_of(o.tenant, o.customer.points)),
+                     "min_redeem": o.tenant.loyalty_min_redeem}
+                    if o.customer_id and o.tenant.loyalty_enabled and o.customer else None),
         "promotion": {"id": o.promotion_id, "name": o.promotion_name, "amount": money(o.promotion_amount)} if o.promotion_id else None,
         "due": money(due(o)), "paid": money(o.paid), "refunded": money(o.refunded), "balance": money(balance(o)),
         "payment_method": o.payment_method, "void_reason": o.void_reason,
@@ -590,7 +594,7 @@ def send_kot(oid: str, body: KotIn | None = None, ctx: Ctx = Depends(require("or
 # ---------- Payments, voids, refunds ----------
 
 class PaymentIn(BaseModel):
-    method: str = Field(pattern=METHODS)
+    method: str = Field(pattern=PAY_METHODS)
     amount: float = Field(gt=0, le=10_000_000)
     tip: float = Field(default=0, ge=0, le=1_000_000)
     tendered: float = Field(default=0, ge=0, le=10_000_000)
@@ -614,7 +618,19 @@ def take_payment(db: Session, ctx: Ctx, o: Order, body: PaymentIn) -> dict:
     amount = q(Decimal(str(body.amount)))
     if amount > balance(o) + CENT / 2:
         raise HTTPException(409, "That's more than the balance due")
-    tip = q(Decimal(str(body.tip))) if ctx.tenant.tips_enabled else Decimal(0)
+    if body.method == "points":
+        t = ctx.tenant
+        if not t.loyalty_enabled or not o.customer_id:
+            raise HTTPException(409, "Add the customer's phone to the check to pay with points")
+        c = db.get(Customer, o.customer_id)
+        need = loyalty.points_for(t, amount)
+        if (c.points or 0) < (t.loyalty_min_redeem or 0):
+            raise HTTPException(409, f"Points can be used from {t.loyalty_min_redeem} points; {c.name or 'the guest'} has {c.points}")
+        if need > (c.points or 0):
+            raise HTTPException(409, f"{c.points} points cover {money(loyalty.value_of(t, c.points))}")
+        if need <= 0:
+            raise HTTPException(422, "That's less than one point")
+    tip = q(Decimal(str(body.tip))) if ctx.tenant.tips_enabled and body.method != "points" else Decimal(0)
     tendered, change = q(Decimal(str(body.tendered))), Decimal(0)
     if body.method == "cash" and tendered:
         if tendered < amount + tip:
@@ -624,6 +640,8 @@ def take_payment(db: Session, ctx: Ctx, o: Order, body: PaymentIn) -> dict:
     o.payments.append(Payment(tenant_id=ctx.tenant_id, order_id=o.id, kind="payment", method=body.method, amount=amount, tip=tip,
                               tendered=tendered, change=change, user_id=ctx.user.id,
                               line_ids=[x for x in body.line_ids if x in valid_lines]))
+    if body.method == "points":
+        loyalty.redeem(db, ctx.tenant, o, amount, ctx.user.name)
     o.paid = Decimal(o.paid or 0) + amount
     recompute(o, ctx.tenant.tax_rate)
     if balance(o) <= CENT / 2:
@@ -631,6 +649,7 @@ def take_payment(db: Session, ctx: Ctx, o: Order, body: PaymentIn) -> dict:
         o.status, o.closed_at = "paid", now()
         taxes.assign_invoice(db, ctx.tenant, o, o.closed_at)
         o.payment_method = methods.pop() if len(methods) == 1 else "split"
+        loyalty.earn(db, ctx.tenant, o)
         if has_module(ctx.tenant, "inventory"):
             deduct_for_order(db, o, ctx.user.id)
     db.commit()
@@ -645,7 +664,7 @@ def add_payment(oid: str, body: PaymentIn, ctx: Ctx = Depends(require("pay")), d
 
 
 class PayIn(BaseModel):
-    method: str = Field(pattern=METHODS)
+    method: str = Field(pattern=PAY_METHODS)
     tip: float = Field(default=0, ge=0)
 
 
@@ -745,6 +764,7 @@ def refund(oid: str, body: RefundIn, ctx: Ctx = Depends(require("refund")), db: 
                     restocked=restock, user_name=ctx.user.name)
     db.add(cn)
     db.flush()
+    loyalty.reverse_for_refund(db, ctx.tenant, o, amount, collected)
     if restock:
         from ..stock import restock_lines
         restock_lines(db, ctx.tenant_id, pairs, user_id=ctx.user.id, order_id=o.id, reason=f"Returned on CN-{cn.number:05d}")

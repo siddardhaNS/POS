@@ -4,7 +4,7 @@ from datetime import datetime
 from .models import Kot, Order, OrderItem, Printer, Tenant
 from .routers.pos import kds_title, order_out, tenant_tz
 
-METHOD_LABEL = {"cash": "Cash", "card": "Card", "upi": "UPI", "tap": "Tap to pay", "online": "Paid online", "other": "Other",
+METHOD_LABEL = {"cash": "Cash", "card": "Card", "upi": "UPI", "tap": "Tap to pay", "online": "Paid online", "other": "Other", "points": "Points",
                 "split": "Split", "comp": "Comp"}
 
 

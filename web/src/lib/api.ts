@@ -25,6 +25,10 @@ export interface Tenant {
   auto_print_receipt?: boolean;
   default_tax_id?: string | null;
   invoice_prefix?: string;
+  loyalty_enabled?: boolean;
+  loyalty_earn_per?: number;
+  loyalty_point_value?: number;
+  loyalty_min_redeem?: number;
   /** Optional modules turned on for this restaurant by Tiffin (online, reports_plus, printing, menu_scan). */
   modules?: string[];
   /** Multi-location: the business this outlet belongs to, and the outlet name (e.g. "Downtown"). */

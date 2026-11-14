@@ -61,6 +61,11 @@ class Tenant(Base):
     # Tax class for dishes with none of their own (null = the single tax_rate / tax_label above)
     default_tax_id: Mapped[str | None] = mapped_column(ForeignKey("tax_rates.id", ondelete="SET NULL", use_alter=True), nullable=True)
     invoice_prefix: Mapped[str] = mapped_column(String(12), default="")  # e.g. "BLR" -> BLR/2026-27/00001
+    # Loyalty: 1 point per loyalty_earn_per spent; each point is worth loyalty_point_value when paying with points
+    loyalty_enabled: Mapped[bool] = mapped_column(Boolean, default=False)
+    loyalty_earn_per: Mapped[Decimal] = mapped_column(Numeric(10, 2), default=Decimal("100"))
+    loyalty_point_value: Mapped[Decimal] = mapped_column(Numeric(10, 4), default=Decimal("1"))
+    loyalty_min_redeem: Mapped[int] = mapped_column(Integer, default=100)
 
 
 class User(Base):
@@ -185,6 +190,7 @@ class Order(Base):
     payments: Mapped[list["Payment"]] = relationship(cascade="all, delete-orphan", order_by="Payment.created_at")
     credit_notes: Mapped[list["CreditNote"]] = relationship(order_by="CreditNote.created_at", viewonly=True)
     tenant: Mapped["Tenant"] = relationship(viewonly=True)
+    customer: Mapped["Customer | None"] = relationship(viewonly=True)
     table: Mapped[DiningTable | None] = relationship()
 
 
@@ -753,3 +759,17 @@ class Promotion(Base):
     first_visit_only: Mapped[bool] = mapped_column(Boolean, default=False)
     max_uses: Mapped[int] = mapped_column(Integer, default=0)  # across all checks (0 = unlimited)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now)
+
+
+class LoyaltyEntry(Base):
+    """Points ledger: earned on paid checks, spent as a tender, reversed on refunds, or adjusted by a manager."""
+    __tablename__ = "loyalty_entries"
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=uid)
+    tenant_id: Mapped[str] = mapped_column(ForeignKey("tenants.id", ondelete="CASCADE"), index=True)
+    customer_id: Mapped[str] = mapped_column(ForeignKey("customers.id", ondelete="CASCADE"), index=True)
+    order_id: Mapped[str | None] = mapped_column(ForeignKey("orders.id", ondelete="SET NULL"), nullable=True, index=True)
+    kind: Mapped[str] = mapped_column(String(10))  # earn | redeem | reverse | adjust
+    points: Mapped[int] = mapped_column(Integer)  # signed
+    note: Mapped[str] = mapped_column(String(200), default="")
+    user_name: Mapped[str] = mapped_column(String(120), default="")
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now, index=True)

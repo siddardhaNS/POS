@@ -10,7 +10,7 @@ from itertools import chain
 from sqlalchemy import event, text
 
 from .db import SessionLocal
-from .models import (AuditLog, CashMovement, CashSession, Customer, DiningTable, FloorSection, Kot, MenuCategory, MenuItem, ModifierGroup,
+from .models import (AuditLog, CashMovement, CashSession, Customer, DiningTable, FloorSection, LoyaltyEntry, Kot, MenuCategory, MenuItem, ModifierGroup,
                      ModifierOption, Order, OrderItem, Payment, PriceList, PriceListItem, Promotion, Printer, PrintJob, PurchaseOrder, RecipeLine, StockCount,
                      Reservation, ServiceRequest, StockItem, StockMovement, Supplier, TimeBreak, TimeEntry)
 
@@ -26,6 +26,7 @@ TOPICS: dict[type, tuple[str, ...]] = {
     CashSession: ("cash",),
     CashMovement: ("cash",),
     Customer: ("customers",),
+    LoyaltyEntry: ("customers",),
     MenuItem: ("menu",),
     MenuCategory: ("menu",),
     ModifierGroup: ("menu",),

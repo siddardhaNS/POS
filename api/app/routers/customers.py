@@ -10,10 +10,11 @@ from pydantic import BaseModel, EmailStr, Field
 from sqlalchemy import func, or_, select
 from sqlalchemy.orm import Session
 
-from .. import crm
+from .. import crm, loyalty
+from ..live import audit
 from ..db import get_db
 from ..deps import Ctx, require
-from ..models import Customer, Order, OrderItem
+from ..models import Customer, LoyaltyEntry, Order, OrderItem
 from .pos import GSTIN, money, tenant_tz
 
 router = APIRouter(tags=["customers"])
@@ -182,3 +183,32 @@ def export(ctx: Ctx = Depends(require("customers")), db: Session = Depends(get_d
                     "yes" if x["marketing_ok"] else "no", x["notes"]])
     return StreamingResponse(iter([buf.getvalue()]), media_type="text/csv",
                              headers={"content-disposition": 'attachment; filename="customers.csv"'})
+
+
+@router.get("/customers/{cid}/points")
+def points_history(cid: str, ctx: Ctx = Depends(require("customers")), db: Session = Depends(get_db)):
+    c = own(db, ctx, cid)
+    rows = db.execute(select(LoyaltyEntry, Order.number).outerjoin(Order, Order.id == LoyaltyEntry.order_id)
+                      .where(LoyaltyEntry.customer_id == c.id).order_by(LoyaltyEntry.created_at.desc()).limit(100)).all()
+    return {"points": c.points, "value": money(loyalty.value_of(ctx.tenant, c.points)),
+            "entries": [{"id": e.id, "kind": e.kind, "points": e.points, "note": e.note, "user": e.user_name, "order_number": n,
+                         "created_at": e.created_at.isoformat()} for e, n in rows]}
+
+
+class AdjustIn(BaseModel):
+    points: int = Field(ge=-1_000_000, le=1_000_000)
+    note: str = Field(min_length=2, max_length=200)
+
+
+@router.post("/customers/{cid}/points")
+def adjust_points(cid: str, body: AdjustIn, ctx: Ctx = Depends(require("discount")), db: Session = Depends(get_db)):
+    """Managers add or take points by hand (a welcome bonus, a correction), with a reason."""
+    c = own(db, ctx, cid)
+    if not body.points:
+        raise HTTPException(422, "Enter the points to add or remove")
+    if (c.points or 0) + body.points < 0:
+        raise HTTPException(409, f"{c.name or 'This customer'} only has {c.points} points")
+    loyalty.adjust(db, ctx.tenant, c, body.points, body.note.strip(), ctx.user.name)
+    audit(db, ctx, "points_adjust", detail=f"{c.name or c.phone}: {body.points:+d} points · {body.note.strip()}")
+    db.commit()
+    return points_history(cid, ctx, db)

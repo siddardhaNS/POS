@@ -6,7 +6,7 @@ import { Cake, Download, Plus, Search, Star, X } from "lucide-react";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
-import { API_URL, api, session } from "@/lib/api";
+import { API_URL, api, can, session } from "@/lib/api";
 import { cn } from "@/lib/utils";
 import { Empty, STATUS_TONE, Seg, run, usePoll, usePos } from "./shared";
 
@@ -136,6 +136,7 @@ function CustomerDetail({ id, onClose, onChanged, openOrder }: { id: string; onC
           {data.favourites.map((f) => <div key={f.name} className="flex justify-between text-sm"><span>{f.name}</span><span className="font-mono text-muted-foreground">{f.qty}×</span></div>)}
         </div>
       )}
+      <PointsPanel id={data.id} name={data.name} />
       <div className="space-y-1.5">
         <div className="font-medium">Checks</div>
         {data.orders.length === 0 ? <p className="text-sm text-muted-foreground">None yet.</p> : data.orders.map((o) => (
@@ -186,5 +187,39 @@ function CustomerForm({ initial, onClose, onSaved }: { initial?: Customer; onClo
       <label className="flex items-center gap-2 text-sm"><input type="checkbox" checked={f.marketing_ok} onChange={(e) => set({ marketing_ok: e.target.checked })} className="size-4" />Happy to receive offers and messages</label>
       <button className="h-11 w-full rounded-xl bg-foreground font-semibold text-background">Save</button>
     </form>
+  );
+}
+
+interface PointsHistory { points: number; value: number; entries: { id: string; kind: string; points: number; note: string; user: string; order_number: number | null; created_at: string }[] }
+
+function PointsPanel({ id, name }: { id: string; name: string }) {
+  const { s, fmt } = usePos();
+  const { data, setData } = usePoll<PointsHistory>(s.tenant?.loyalty_enabled ? `/customers/${id}/points` : null, 0, "customers");
+  const [pts, setPts] = useState("");
+  const [note, setNote] = useState("");
+  if (!s.tenant?.loyalty_enabled || !data) return null;
+  async function adjust() {
+    const r = await run(api<PointsHistory>(`/customers/${id}/points`, { body: { points: Number(pts), note } }), `Points updated for ${name || "the guest"}`);
+    if (r) { setData(r); setPts(""); setNote(""); }
+  }
+  return (
+    <div className="space-y-2">
+      <div className="flex items-baseline justify-between"><span className="font-medium">Points</span><span className="text-sm text-muted-foreground"><span className="font-mono font-semibold text-foreground">{data.points}</span> · worth {fmt(data.value)}</span></div>
+      {can(s.user, "discount") && (
+        <div className="flex gap-2">
+          <Input type="number" value={pts} onChange={(e) => setPts(e.target.value)} placeholder="+50 / −20" className="h-9 w-24 font-mono" />
+          <Input value={note} onChange={(e) => setNote(e.target.value)} placeholder="Reason" maxLength={200} className="h-9 flex-1" />
+          <button onClick={adjust} disabled={!Number(pts) || note.trim().length < 2} className="h-9 rounded-lg bg-foreground px-3 text-sm font-semibold text-background disabled:opacity-40">Adjust</button>
+        </div>
+      )}
+      <div className="max-h-40 space-y-1 overflow-y-auto">
+        {data.entries.map((e) => (
+          <div key={e.id} className="flex justify-between gap-3 text-xs">
+            <span className="text-muted-foreground">{new Date(e.created_at).toLocaleDateString(undefined, { day: "numeric", month: "short" })} · {e.note || e.kind}{e.user ? ` · ${e.user}` : ""}</span>
+            <span className={cn("font-mono font-semibold", e.points < 0 ? "text-saffron-deep" : "text-[oklch(0.45_0.12_150)]")}>{e.points > 0 ? "+" : ""}{e.points}</span>
+          </div>
+        ))}
+      </div>
+    </div>
   );
 }

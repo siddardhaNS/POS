@@ -14,7 +14,8 @@ MARKETS = {
     "IN": {"currency": "INR", "tax_rate": Decimal("0.05"), "tax_label": "CGST 2.5% + SGST 2.5%",
            "timezone": "Asia/Kolkata", "tips_enabled": False},
     "US": {"currency": "USD", "tax_rate": Decimal("0.08875"), "tax_label": "Sales tax 8.875%",
-           "timezone": "America/New_York", "tips_enabled": True},
+           "timezone": "America/New_York", "tips_enabled": True, "loyalty_earn_per": Decimal("1"),
+           "loyalty_point_value": Decimal("0.01")},
 }
 
 # (name, INR price, veg, category, station)

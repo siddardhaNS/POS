@@ -438,6 +438,10 @@ class SettingsIn(BaseModel):
     auto_print_kot: bool | None = None
     auto_print_receipt: bool | None = None
     invoice_prefix: str | None = Field(default=None, max_length=12, pattern=r"^[A-Za-z0-9-]*$")
+    loyalty_enabled: bool | None = None
+    loyalty_earn_per: float | None = Field(default=None, gt=0, le=1_000_000)
+    loyalty_point_value: float | None = Field(default=None, ge=0, le=1000)
+    loyalty_min_redeem: int | None = Field(default=None, ge=0, le=1_000_000)
 
 
 @router.get("/settings")
@@ -458,7 +462,7 @@ def update_settings(body: SettingsIn, ctx: Ctx = Depends(require("settings")), d
     if "tax_rate" in data and Decimal(str(data["tax_rate"])) != t.tax_rate:
         audit(db, ctx, "tax_change", detail=f"{float(t.tax_rate) * 100:g}% → {data['tax_rate'] * 100:g}%")
     for k, v in data.items():
-        setattr(t, k, Decimal(str(v)) if k == "tax_rate" else v)
+        setattr(t, k, Decimal(str(v)) if k in ("tax_rate", "loyalty_earn_per", "loyalty_point_value") else v)
     if "tax_rate" in data and t.default_tax_id:
         # The single rate is the default tax class: change the class too, scaling its parts (CGST / SGST).
         r = db.get(TaxRate, t.default_tax_id)

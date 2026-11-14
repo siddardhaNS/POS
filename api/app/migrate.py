@@ -35,6 +35,12 @@ COLUMNS: dict[str, list[tuple[str, str, str | None]]] = {
         ("qr_auto_send", "BOOLEAN NOT NULL DEFAULT FALSE", None),
         ("default_tax_id", "VARCHAR(36) NULL REFERENCES tax_rates(id) ON DELETE SET NULL", None),
         ("invoice_prefix", "VARCHAR(12) NOT NULL DEFAULT ''", None),
+        ("loyalty_enabled", "BOOLEAN NOT NULL DEFAULT FALSE", None),
+        ("loyalty_earn_per", "NUMERIC(10,2) NOT NULL DEFAULT 100",
+         "UPDATE tenants SET loyalty_earn_per = CASE WHEN market = 'US' THEN 1 ELSE 100 END"),
+        ("loyalty_point_value", "NUMERIC(10,4) NOT NULL DEFAULT 1",
+         "UPDATE tenants SET loyalty_point_value = CASE WHEN market = 'US' THEN 0.01 ELSE 1 END"),
+        ("loyalty_min_redeem", "INTEGER NOT NULL DEFAULT 100", None),
     ],
     "users": [
         ("hourly_rate", "NUMERIC(10,2) NOT NULL DEFAULT 0", None),
