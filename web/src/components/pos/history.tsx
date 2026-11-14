@@ -2,12 +2,13 @@
 
 import { useEffect, useState } from "react";
 import { toast } from "sonner";
-import { Printer, RotateCcw, Search, Undo2 } from "lucide-react";
+import { FileMinus, Minus, Plus, Printer, RotateCcw, Search, Undo2 } from "lucide-react";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { api, can } from "@/lib/api";
+import { api, can, hasModule } from "@/lib/api";
 import { cn } from "@/lib/utils";
+import { printCreditNote } from "./print";
 import { printOrder } from "./print-host";
 import { Empty, METHOD_LABEL, STATUS_TONE, Seg, orderTitle, payMethods, run, usePoll, usePos } from "./shared";
 import type { Order } from "./types";
@@ -111,6 +112,7 @@ export function OrdersScreen() {
               {sel.items.map((l) => (
                 <div key={l.id} className="flex justify-between gap-3">
                   <span>{l.qty} × {l.name}
+                    {!!l.returned_qty && <span className="ml-1.5 rounded bg-saffron/20 px-1.5 text-[11px] font-medium text-saffron-deep">{l.returned_qty} returned</span>}
                     {l.modifiers.length > 0 && <span className="block text-xs text-muted-foreground">{l.modifiers.map((m) => m.name).join(" · ")}</span>}
                     {l.comp_reason && <span className="block text-xs text-saffron-deep">Comp · {l.comp_reason}</span>}
                   </span>
@@ -131,6 +133,21 @@ export function OrdersScreen() {
                     <div key={p.id} className={cn("flex justify-between gap-3", p.kind === "refund" && "text-saffron-deep")}>
                       <span>{p.kind === "refund" ? `Refund · ${p.reason}` : METHOD_LABEL[p.method] ?? p.method}{p.kind === "refund" ? ` · ${METHOD_LABEL[p.method] ?? p.method}` : ""} · {time(p.created_at)}</span>
                       <span className="font-mono">{p.kind === "refund" ? "−" : ""}{fmt(p.amount + p.tip)}</span>
+                    </div>
+                  ))}
+                </div>
+              )}
+              {!!sel.credit_notes?.length && (
+                <div className="space-y-1.5 border-t border-border pt-3">
+                  <div className="font-medium">Credit notes</div>
+                  {sel.credit_notes.map((cn) => (
+                    <div key={cn.id} className="flex items-center gap-3">
+                      <FileMinus className="size-4 shrink-0 text-saffron-deep" />
+                      <div className="min-w-0 flex-1">
+                        <div className="font-medium">{cn.label} · {fmt(cn.amount)}</div>
+                        <div className="truncate text-xs text-muted-foreground">{time(cn.created_at)} · {cn.reason}{cn.lines.length ? ` · ${cn.lines.map((l) => `${l.qty} × ${l.name}`).join(", ")}` : ""}{cn.restocked ? " · restocked" : ""}</div>
+                      </div>
+                      <button onClick={() => printCreditNote(cn, sel, s.tenant, fmt)} className="rounded-lg bg-muted px-2.5 py-1 text-xs font-semibold">Print</button>
                     </div>
                   ))}
                 </div>
@@ -176,20 +193,66 @@ function RefundDialog({ order, onClose, onDone }: { order: Order; onClose: () =>
   const [amount, setAmount] = useState(String(left));
   const [method, setMethod] = useState(firstMethod);
   const [reason, setReason] = useState("");
+  const [back, setBack] = useState<Record<string, number>>({});
+  const [restock, setRestock] = useState(false);
   const v = Number(amount) || 0;
+  const returnable = order.items.filter((l) => !l.comp_reason && l.qty - (l.returned_qty ?? 0) > 0);
+  // Returned items are valued at what the guest paid for them: their share of the check after discount, with tax.
+  const ratio = order.subtotal ? order.due / order.subtotal : 1;
+  const picked = Object.entries(back).filter(([, n]) => n > 0);
+  const itemsValue = Math.round(picked.reduce((a, [id, n]) => {
+    const l = order.items.find((x) => x.id === id)!;
+    return a + (l.line_total / l.qty) * n * ratio;
+  }, 0) * 100) / 100;
+
+  function setQty(id: string, n: number) {
+    const next = { ...back, [id]: n };
+    setBack(next);
+    const value = Object.entries(next).reduce((a, [lid, k]) => {
+      const l = order.items.find((x) => x.id === lid)!;
+      return a + (l.line_total / l.qty) * k * ratio;
+    }, 0);
+    setAmount(String(Math.min(left, Math.round(value * 100) / 100) || left));
+  }
 
   async function refund() {
-    const o = await run(api<Order>(`/orders/${order.id}/refund`, { body: { amount: v, method, reason } }));
+    const lines = picked.map(([line_id, qty]) => ({ line_id, qty }));
+    const o = await run(api<Order>(`/orders/${order.id}/refund`, { body: { amount: v, method, reason, lines, restock: restock && lines.length > 0 } }));
     if (o) onDone(o);
   }
 
   return (
     <Dialog open onOpenChange={(o) => !o && onClose()}>
-      <DialogContent className="gap-5 sm:max-w-md">
+      <DialogContent className="max-h-[90vh] gap-5 overflow-y-auto sm:max-w-md">
         <DialogHeader>
           <DialogTitle className="text-xl">Refund check #{order.number}</DialogTitle>
-          <DialogDescription>Up to {fmt(left)} can be refunded. Cash refunds come out of the drawer.</DialogDescription>
+          <DialogDescription>Up to {fmt(left)} can be refunded. A numbered credit note is issued for it. Cash refunds come out of the drawer.</DialogDescription>
         </DialogHeader>
+        {returnable.length > 0 && (
+          <div className="space-y-2">
+            <Label>Items handed back (optional)</Label>
+            <div className="space-y-1.5">
+              {returnable.map((l) => {
+                const max = l.qty - (l.returned_qty ?? 0);
+                const n = back[l.id] ?? 0;
+                return (
+                  <div key={l.id} className={cn("flex items-center gap-3 rounded-xl px-3 py-2 ring-1", n ? "ring-foreground" : "ring-border")}>
+                    <span className="min-w-0 flex-1 truncate text-sm">{l.name}<span className="text-xs text-muted-foreground"> · {max} left</span></span>
+                    <div className="flex items-center gap-1.5">
+                      <button type="button" onClick={() => setQty(l.id, Math.max(0, n - 1))} className="grid size-8 place-items-center rounded-lg bg-muted"><Minus className="size-3.5" /></button>
+                      <span className="w-6 text-center font-mono text-sm font-semibold">{n}</span>
+                      <button type="button" onClick={() => setQty(l.id, Math.min(max, n + 1))} className="grid size-8 place-items-center rounded-lg bg-muted"><Plus className="size-3.5" /></button>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+            {picked.length > 0 && <p className="text-xs text-muted-foreground">Items worth {fmt(itemsValue)} with tax. You can still change the amount.</p>}
+            {picked.length > 0 && hasModule(s.tenant, "inventory") && (
+              <label className="flex items-center gap-2 text-sm"><input type="checkbox" checked={restock} onChange={(e) => setRestock(e.target.checked)} className="size-4" />Put their stock back (unopened or packaged items)</label>
+            )}
+          </div>
+        )}
         <div className="space-y-2">
           <Label>Amount</Label>
           <div className="flex gap-2">

@@ -13,7 +13,7 @@ from ..db import get_db
 from ..deps import PERMISSIONS, Ctx, has_module, needs, require
 from ..live import ALL_TOPICS, audit
 from .. import menurules, phases
-from ..models import DiningTable, Kot, LiveRev, MenuCategory, MenuItem, ModifierGroup, Order, OrderItem, Payment, ServiceRequest, Tenant, now
+from ..models import CreditNote, DiningTable, Kot, LiveRev, MenuCategory, MenuItem, ModifierGroup, Order, OrderItem, Payment, ServiceRequest, Tenant, now
 from ..stock import deduct_for_order
 
 router = APIRouter(tags=["pos"])
@@ -86,14 +86,16 @@ def order_out(o: Order) -> dict:
                    "qty": i.qty, "note": i.note, "modifiers": i.modifiers or [], "comp_reason": i.comp_reason,
                    "course": i.course, "seat": i.seat, "station": i.station, "source": i.source, "price_list": i.price_list,
                    "line_total": money(line_total(i)), "sent": i.kot_id is not None, "done": i.done,
-                   "paid": i.id in paid_lines} for i in o.items],
+                   "paid": i.id in paid_lines, "returned_qty": i.returned_qty or 0} for i in o.items],
         "payments": [payment_out(p) for p in o.payments],
+        "credit_notes": [credit_note_out(c) for c in o.credit_notes] if "credit_notes" in o.__dict__ else [],
     }
 
 
 def load_order(db: Session, ctx: Ctx, oid: str) -> Order:
     o = db.scalar(select(Order).where(Order.id == oid, Order.tenant_id == ctx.tenant_id)
-                  .options(selectinload(Order.items), selectinload(Order.payments), selectinload(Order.table)))
+                  .options(selectinload(Order.items), selectinload(Order.payments), selectinload(Order.table),
+                           selectinload(Order.credit_notes)))
     if not o:
         raise HTTPException(404, "Order not found")
     return o
@@ -658,10 +660,23 @@ def reopen(oid: str, ctx: Ctx = Depends(require("refund")), db: Session = Depend
     return order_out(load_order(db, ctx, oid))
 
 
+class ReturnLineIn(BaseModel):
+    line_id: str = Field(max_length=36)
+    qty: int = Field(ge=1, le=99)
+
+
 class RefundIn(BaseModel):
     amount: float = Field(gt=0, le=10_000_000)
     method: str = Field(pattern=METHODS)
     reason: str = Field(min_length=2, max_length=200)
+    lines: list[ReturnLineIn] = Field(default_factory=list, max_length=200)  # items handed back (optional)
+    restock: bool = False  # put returned items' stock back (inventory)
+
+
+def credit_note_out(cn: CreditNote) -> dict:
+    return {"id": cn.id, "number": cn.number, "label": f"CN-{cn.number:05d}", "order_id": cn.order_id, "amount": money(cn.amount),
+            "tax": money(cn.tax), "method": cn.method, "reason": cn.reason, "lines": cn.lines or [], "restocked": cn.restocked,
+            "user": cn.user_name, "created_at": cn.created_at.isoformat()}
 
 
 @router.post("/orders/{oid}/refund")
@@ -673,14 +688,55 @@ def refund(oid: str, body: RefundIn, ctx: Ctx = Depends(require("refund")), db: 
     collected = Decimal(o.paid or 0) + Decimal(o.tip or 0)
     if amount > collected - Decimal(o.refunded or 0) + CENT / 2:
         raise HTTPException(409, "That's more than what's left to refund")
-    o.payments.append(Payment(tenant_id=ctx.tenant_id, order_id=o.id, kind="refund", method=body.method,
-                              amount=amount, reason=body.reason.strip(), user_id=ctx.user.id))
+    by_id = {i.id: i for i in o.items}
+    returned, pairs = [], []
+    for r in body.lines:
+        i = by_id.get(r.line_id)
+        if not i:
+            raise HTTPException(404, "That item isn't on this check")
+        if r.qty > i.qty - (i.returned_qty or 0):
+            raise HTTPException(409, f"Only {i.qty - (i.returned_qty or 0)} × {i.name} left to return")
+        i.returned_qty = (i.returned_qty or 0) + r.qty
+        returned.append({"line_id": i.id, "name": i.name, "qty": r.qty, "amount": money(line_total(i) / i.qty * r.qty if i.qty else 0)})
+        pairs.append((i, r.qty))
+    pay = Payment(tenant_id=ctx.tenant_id, order_id=o.id, kind="refund", method=body.method,
+                  amount=amount, reason=body.reason.strip(), user_id=ctx.user.id)
+    o.payments.append(pay)
     o.refunded = Decimal(o.refunded or 0) + amount
     if o.refunded >= collected - CENT / 2:
         o.status = "refunded"
-    audit(db, ctx, "refund", order=o, amount=amount, detail=f"{body.method} · {body.reason.strip()}")
+    db.flush()
+    # The tax share being reversed, in proportion to what was collected (tips carry no tax).
+    tax = q(amount * Decimal(o.tax) / collected) if collected else Decimal(0)
+    restock = bool(body.restock and pairs and has_module(ctx.tenant, "inventory"))
+    cn = CreditNote(tenant_id=ctx.tenant_id, number=next_number(db, CreditNote, ctx.tenant_id), order_id=o.id, payment_id=pay.id,
+                    amount=amount, tax=min(tax, Decimal(o.tax)), method=body.method, reason=body.reason.strip(), lines=returned,
+                    restocked=restock, user_name=ctx.user.name)
+    db.add(cn)
+    db.flush()
+    if restock:
+        from ..stock import restock_lines
+        restock_lines(db, ctx.tenant_id, pairs, user_id=ctx.user.id, order_id=o.id, reason=f"Returned on CN-{cn.number:05d}")
+    audit(db, ctx, "refund", order=o, amount=amount, detail=f"CN-{cn.number:05d} · {body.method} · {body.reason.strip()}"
+          + (" · returned " + ", ".join(f"{x['qty']} × {x['name']}" for x in returned) if returned else ""))
     db.commit()
+    db.expire_all()
     return order_out(load_order(db, ctx, oid))
+
+
+@router.get("/credit-notes")
+def credit_notes(start: date | None = None, end: date | None = None, ctx: Ctx = Depends(require("history")),
+                 db: Session = Depends(get_db)):
+    """Credit notes issued between two local dates (default: today), newest first, with the check they reverse."""
+    tz = tenant_tz(ctx.tenant)
+    s = start or datetime.now(tz).date()
+    e = end or s
+    lo = datetime(s.year, s.month, s.day, tzinfo=tz)
+    hi = datetime(e.year, e.month, e.day, tzinfo=tz) + timedelta(days=1)
+    rows = db.execute(select(CreditNote, Order.number).join(Order, Order.id == CreditNote.order_id)
+                      .where(CreditNote.tenant_id == ctx.tenant_id, CreditNote.created_at >= lo, CreditNote.created_at < hi)
+                      .order_by(CreditNote.created_at.desc()).limit(1000)).all()
+    return [{**credit_note_out(cn), "order_number": n} for cn, n in rows]
 
 
 # ---------- Kitchen display ----------

@@ -116,21 +116,29 @@ def recipe_lines_for(db: Session, tenant_id: str, menu_ids: set[str]) -> dict[st
 def order_usage(db: Session, o: Order) -> dict[str, Decimal]:
     """Base-unit quantity of each stock item a check consumed: every line (comped food is still eaten) times
     qty, plus the recipes of the modifiers picked on it."""
+    return line_usage(db, o.tenant_id, [(i, i.qty) for i in o.items])
+
+
+def line_usage(db: Session, tenant_id: str, pairs: list) -> dict[str, Decimal]:
+    """Stock used by (order line, quantity) pairs."""
+    items = [i for i, _ in pairs]
+    qty_of = {id(i): q for i, q in pairs}
     # Combo choices (modifiers linked to a dish) use that dish's base recipe.
-    combo_ids = {str(m["item_id"]) for i in o.items for m in (i.modifiers or []) if m.get("item_id")}
-    lines = recipe_lines_for(db, o.tenant_id, {i.menu_item_id for i in o.items if i.menu_item_id} | combo_ids)
+    combo_ids = {str(m["item_id"]) for i in items for m in (i.modifiers or []) if m.get("item_id")}
+    lines = recipe_lines_for(db, tenant_id, {i.menu_item_id for i in items if i.menu_item_id} | combo_ids)
     need: dict[str, Decimal] = defaultdict(Decimal)
-    for i in o.items:
-        if not i.menu_item_id or i.qty <= 0:
+    for i in items:
+        n = qty_of[id(i)]
+        if not i.menu_item_id or n <= 0:
             continue
         picked = {(str(m.get("group", "")), str(m.get("name", ""))) for m in (i.modifiers or [])}
         for r in lines.get(i.menu_item_id, []):
             if not r.modifier_option or (r.modifier_group, r.modifier_option) in picked:
-                need[r.stock_item_id] += D(r.qty) * i.qty
+                need[r.stock_item_id] += D(r.qty) * n
         for m in i.modifiers or []:
             for r in lines.get(str(m.get("item_id") or ""), []):
                 if not r.modifier_option:
-                    need[r.stock_item_id] += D(r.qty) * i.qty
+                    need[r.stock_item_id] += D(r.qty) * n
     return need
 
 
@@ -159,3 +167,15 @@ def deduct_for_order(db: Session, o: Order, user_id: str | None = None) -> None:
         apply_movement(db, it, "sale", -qty, user_id=user_id, order_id=o.id, reason=f"Order #{o.number}")
         touched.add(sid)
     sync_auto86(db, o.tenant_id, touched)
+
+
+def restock_lines(db: Session, tenant_id: str, pairs: list, *, user_id: str | None, order_id: str, reason: str) -> None:
+    """Put back the stock of returned items (packaged goods, untouched dishes)."""
+    touched = set()
+    for sid, qty in line_usage(db, tenant_id, pairs).items():
+        it = db.scalar(select(StockItem).where(StockItem.id == sid, StockItem.tenant_id == tenant_id))
+        if it is None or qty <= 0:
+            continue
+        apply_movement(db, it, "adjust", qty, user_id=user_id, order_id=order_id, reason=reason)
+        touched.add(sid)
+    sync_auto86(db, tenant_id, touched)

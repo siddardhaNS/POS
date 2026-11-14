@@ -24,7 +24,7 @@ export interface Modifier { group: string; name: string; price: number }
 export interface Line {
   id: string; menu_item_id: string | null; name: string; unit_price: number; qty: number; note: string;
   modifiers: Modifier[]; comp_reason: string; line_total: number; sent: boolean; done: boolean; paid: boolean;
-  course: number; seat: number; station: string; source?: string; price_list?: string;
+  course: number; seat: number; station: string; source?: string; price_list?: string; returned_qty?: number;
 }
 export interface PaymentRow {
   id: string; kind: "payment" | "refund"; method: string; amount: number; tip: number; tendered: number; change: number;
@@ -37,6 +37,12 @@ export interface Order {
   discount: { kind: "" | "percent" | "amount"; value: number; amount: number; reason: string };
   due: number; paid: number; refunded: number; balance: number; payment_method: string; void_reason: string;
   opened_at: string; closed_at: string | null; items: Line[]; payments: PaymentRow[]; change?: number;
+  credit_notes?: CreditNote[];
+}
+export interface CreditNote {
+  id: string; number: number; label: string; order_id: string; amount: number; tax: number; method: string; reason: string;
+  lines: { line_id: string; name: string; qty: number; amount: number }[]; restocked: boolean; user: string; created_at: string;
+  order_number?: number;
 }
 
 export interface TableRow {

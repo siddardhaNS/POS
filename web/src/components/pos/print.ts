@@ -2,7 +2,7 @@
 
 import type { Tenant } from "@/lib/api";
 import { METHOD_LABEL, orderTitle } from "./shared";
-import type { KotPrint, Order } from "./types";
+import type { CreditNote, KotPrint, Order } from "./types";
 
 export const esc = (s: string) => s.replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c]!);
 
@@ -100,4 +100,24 @@ export function printDrawer(d: DrawerReport, t: Tenant | null | undefined, fmt: 
     ${d.counted_cash != null ? r("Counted", fmt(d.counted_cash)) + r("<b>Over / short</b>", `<b>${fmt(d.difference ?? 0)}</b>`) : ""}
     ${d.note ? `<hr><div>${esc(d.note)}</div>` : ""}`;
   printHtml(body, "Drawer report");
+}
+
+/** Credit note for a refund: what was returned and the tax being reversed, against the original check. */
+export function printCreditNote(cn: CreditNote, o: Pick<Order, "number" | "table" | "channel" | "customer_name" | "closed_at" | "opened_at">,
+  t: Tenant | null | undefined, fmt: (v: number) => string) {
+  const r = (l: string, v: string, cls = "") => `<div class="r ${cls}"><span>${l}</span><span>${v}</span></div>`;
+  const body = `${header(t)}
+    <hr><div class="c b big">CREDIT NOTE</div>
+    ${r(esc(cn.label), when(cn.created_at))}
+    ${r(`Against check #${o.number}`, esc(orderTitle({ ...o, customer_name: o.customer_name })))}
+    <div>Original: ${when(o.closed_at ?? o.opened_at)}</div>
+    ${o.customer_name ? `<div>Customer: ${esc(o.customer_name)}</div>` : ""}<hr>
+    ${cn.lines.length ? cn.lines.map((l) => r(`${l.qty} × ${esc(l.name)}`, fmt(l.amount))).join("") + "<hr>" : ""}
+    ${r(`Reason`, esc(cn.reason))}
+    ${r(`Refunded by`, esc(METHOD_LABEL[cn.method] ?? cn.method))}
+    ${cn.tax ? r(`${esc(t?.tax_label || "Tax")} reversed`, fmt(cn.tax)) : ""}
+    ${r("Total credited", fmt(cn.amount), "b huge")}
+    ${cn.restocked ? `<div class="m">Returned items put back in stock</div>` : ""}
+    <hr><div class="c">Issued by ${esc(cn.user || "staff")}</div>`;
+  printHtml(body, cn.label);
 }

@@ -166,6 +166,7 @@ class Order(Base):
     closed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     items: Mapped[list["OrderItem"]] = relationship(cascade="all, delete-orphan", order_by="OrderItem.created_at")
     payments: Mapped[list["Payment"]] = relationship(cascade="all, delete-orphan", order_by="Payment.created_at")
+    credit_notes: Mapped[list["CreditNote"]] = relationship(order_by="CreditNote.created_at", viewonly=True)
     table: Mapped[DiningTable | None] = relationship()
 
 
@@ -204,6 +205,7 @@ class OrderItem(Base):
     price_list: Mapped[str] = mapped_column(String(80), default="")  # price list that set unit_price ("" = base price)
     source: Mapped[str] = mapped_column(String(10), default="")  # "guest" = ordered by the guest from the table QR
     kot_id: Mapped[str | None] = mapped_column(ForeignKey("kots.id", ondelete="SET NULL"), nullable=True)
+    returned_qty: Mapped[int] = mapped_column(Integer, default=0)  # handed back on a credit note
     done: Mapped[bool] = mapped_column(Boolean, default=False)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now)
     kot: Mapped[Kot | None] = relationship(back_populates="items")
@@ -637,3 +639,25 @@ class PriceListItem(Base):
     price_list_id: Mapped[str] = mapped_column(ForeignKey("price_lists.id", ondelete="CASCADE"), index=True)
     menu_item_id: Mapped[str] = mapped_column(ForeignKey("menu_items.id", ondelete="CASCADE"), index=True)
     price: Mapped[Decimal] = mapped_column(Numeric(10, 2))
+
+
+# ---------- Returns ----------
+
+class CreditNote(Base):
+    """The document issued for every refund: numbered in its own series, with the items returned (if any) and the
+    tax share being reversed, so the books and tax returns can net it off the original invoice."""
+    __tablename__ = "credit_notes"
+    __table_args__ = (UniqueConstraint("tenant_id", "number"),)
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=uid)
+    tenant_id: Mapped[str] = mapped_column(ForeignKey("tenants.id", ondelete="CASCADE"), index=True)
+    number: Mapped[int] = mapped_column(Integer)
+    order_id: Mapped[str] = mapped_column(ForeignKey("orders.id", ondelete="CASCADE"), index=True)
+    payment_id: Mapped[str | None] = mapped_column(ForeignKey("payments.id", ondelete="SET NULL"), nullable=True)
+    amount: Mapped[Decimal] = mapped_column(Numeric(12, 2))
+    tax: Mapped[Decimal] = mapped_column(Numeric(12, 2), default=Decimal("0"))  # tax included in amount
+    method: Mapped[str] = mapped_column(String(20), default="")
+    reason: Mapped[str] = mapped_column(String(200), default="")
+    lines: Mapped[list] = mapped_column(JSON, default=list)  # [{"line_id", "name", "qty", "amount"}] returned items
+    restocked: Mapped[bool] = mapped_column(Boolean, default=False)
+    user_name: Mapped[str] = mapped_column(String(120), default="")
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now, index=True)

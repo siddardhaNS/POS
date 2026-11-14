@@ -64,6 +64,7 @@ COLUMNS: dict[str, list[tuple[str, str, str | None]]] = {
         ("seat", "INTEGER NOT NULL DEFAULT 0", None),
         ("source", "VARCHAR(10) NOT NULL DEFAULT ''", None),
         ("price_list", "VARCHAR(80) NOT NULL DEFAULT ''", None),
+        ("returned_qty", "INTEGER NOT NULL DEFAULT 0", None),
         ("station", "VARCHAR(40) NOT NULL DEFAULT ''",
          "UPDATE order_items oi SET station = mi.station FROM menu_items mi WHERE mi.id = oi.menu_item_id"),
     ],
