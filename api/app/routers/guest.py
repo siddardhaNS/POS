@@ -16,7 +16,7 @@ from ..db import get_db
 from ..deps import LIVE_STATUSES, Ctx, has_module, needs, require
 from ..models import DiningTable, Kot, MenuItem, Order, OrderItem, ServiceRequest, Tenant, now
 from .backoffice import _menu
-from .pos import load_order, next_number, order_out, recompute, resolve_modifiers
+from .pos import check_sellable, load_order, next_number, order_out, recompute, resolve_modifiers
 
 router = APIRouter(tags=["guest"])
 
@@ -62,8 +62,10 @@ def check_out(o: Order | None) -> dict | None:
 @router.get("/guest/{token}")
 def guest_view(token: str, db: Session = Depends(get_db)):
     t, tenant = guest_table(db, token)
-    menu = [{"id": c["id"], "name": c["name"], "items": [i for i in c["items"] if i["available"]]}
-            for c in _menu(as_ctx(tenant), db)]
+    # Only what the table can order right now: in stock, offered on the QR menu, and inside serving hours.
+    menu = [{"id": c["id"], "name": c["name"],
+             "items": [i for i in c["items"] if i["available"] and (not i["channels"] or "qr" in i["channels"])]}
+            for c in _menu(as_ctx(tenant), db) if c["open_now"]]
     o = open_check(db, t)
     o = load_order(db, as_ctx(tenant), o.id) if o else None
     asks = db.scalars(select(ServiceRequest.kind).where(ServiceRequest.table_id == t.id, ServiceRequest.status == "open")).all()
@@ -113,6 +115,7 @@ def guest_order(token: str, body: GuestOrderIn, db: Session = Depends(get_db)):
             raise HTTPException(404, "Something on your order is no longer on the menu. Please refresh.")
         if not m.available:
             raise HTTPException(409, f"Sorry, {m.name} just sold out.")
+        check_sellable(db, ctx, m, "qr")
         mods = resolve_modifiers(db, ctx, m, x.modifier_ids)
         unit = m.price + sum((Decimal(str(md["price"])) for md in mods), Decimal(0))
         line = OrderItem(tenant_id=tenant.id, menu_item_id=m.id, name=m.name, unit_price=unit, qty=x.qty, note=x.note.strip(),

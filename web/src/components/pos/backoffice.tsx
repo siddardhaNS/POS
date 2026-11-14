@@ -7,7 +7,7 @@ import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } f
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
-import { ALLERGEN_LABEL, NUTRIENTS, SUGGESTED_TAGS, allergenList } from "@/lib/menu";
+import { ALLERGEN_LABEL, DAYS, MENU_CHANNELS, NUTRIENTS, SUGGESTED_TAGS, allergenList } from "@/lib/menu";
 import { api, can, hasModule } from "@/lib/api";
 import { cn } from "@/lib/utils";
 import { NativeSelect } from "@/components/auth-shell";
@@ -47,7 +47,7 @@ export function MenuAdmin() {
     if (!sel) return;
     const body = {
       name: sel.name, price: sel.price, is_veg: sel.is_veg, station: sel.station, category_id: sel.category_id, available: sel.available,
-      description: sel.description ?? "", tags: sel.tags ?? [], allergens: sel.allergens ?? [],
+      description: sel.description ?? "", tags: sel.tags ?? [], allergens: sel.allergens ?? [], channels: sel.channels ?? [],
       nutrition: Object.fromEntries(Object.entries(sel.nutrition ?? {}).filter(([, v]) => v != null && !Number.isNaN(v))),
     };
     const r = sel.id ? await run(api(`/menu/items/${sel.id}`, { method: "PATCH", body }), `${sel.name} published`)
@@ -105,6 +105,7 @@ export function MenuAdmin() {
             <span className="text-xs text-muted-foreground">Used on the Floor timeline to show which course each table is on and when it will clear.</span>
           </div>
         )}
+        {cur && <ServingHours key={cur.id} cat={cur} edit={edit} onSaved={(c) => setData((d) => d && d.map((x) => (x.id === c.id ? { ...x, ...c, items: x.items } : x)))} />}
         <div className="overflow-hidden rounded-2xl border border-border bg-card">
           <div className="grid grid-cols-[1fr_90px_90px_60px] gap-3 border-b border-border px-5 py-3 font-mono text-[11px] uppercase tracking-[0.08em] text-muted-foreground">
             <span>Item</span><span>Price</span><span>Station</span><span>Live</span>
@@ -165,6 +166,25 @@ export function MenuAdmin() {
                   </button>
                 ))}
               </div>
+              <div className="space-y-2">
+                <Label>Sold on</Label>
+                <div className="flex flex-wrap gap-1.5">
+                  {MENU_CHANNELS.map(({ k, l }) => {
+                    const chosen = sel.channels?.length ? sel.channels : MENU_CHANNELS.map((c) => c.k);
+                    const on = chosen.includes(k);
+                    return (
+                      <button type="button" key={k}
+                        onClick={() => {
+                          const next = on ? chosen.filter((x) => x !== k) : [...chosen, k];
+                          if (!next.length) return toast.error("Keep at least one channel, or mark the item out of stock");
+                          setSel({ ...sel, channels: next.length === MENU_CHANNELS.length ? [] : next });
+                        }}
+                        className={cn("rounded-lg px-3 py-1.5 text-sm ring-1 ring-border", on ? "bg-foreground text-background" : "bg-card text-muted-foreground")}>{l}</button>
+                    );
+                  })}
+                </div>
+                <p className="text-xs text-muted-foreground">{sel.channels?.length ? "Only offered where selected." : "Offered everywhere."}</p>
+              </div>
               <GuestDetails item={sel} onChange={(p) => setSel({ ...sel, ...p })} />
             </fieldset>
             {sel.id && (
@@ -194,6 +214,46 @@ export function MenuAdmin() {
           </div>
         )}
       </aside>
+    </div>
+  );
+}
+
+/* ---------------- Serving hours per category ---------------- */
+
+function ServingHours({ cat, edit, onSaved }: { cat: Category; edit: boolean; onSaved: (c: Category) => void }) {
+  const [days, setDays] = useState<number[]>(cat.schedule?.days ?? [0, 1, 2, 3, 4, 5, 6]);
+  const [from, setFrom] = useState(cat.schedule?.from ?? "");
+  const [to, setTo] = useState(cat.schedule?.to ?? "");
+  const [open, setOpen] = useState(false);
+  async function save(clear = false) {
+    const schedule = clear ? {} : { days, ...(from && to ? { from, to } : {}) };
+    const r = await run(api<Category>(`/menu/categories/${cat.id}`, { method: "PATCH", body: { schedule } }), clear ? `${cat.name} served all day` : "Serving hours saved");
+    if (r) { onSaved(r); setOpen(false); if (clear) { setDays([0, 1, 2, 3, 4, 5, 6]); setFrom(""); setTo(""); } }
+  }
+  return (
+    <div className="flex flex-wrap items-center gap-2 text-sm">
+      <span className="text-muted-foreground">Serving hours</span>
+      <span className={cn("rounded-lg px-2.5 py-1 font-medium", cat.open_now === false ? "bg-saffron/20 text-saffron-deep" : "bg-muted")}>
+        {cat.schedule_label || "All day, every day"}{cat.open_now === false ? " · not serving now" : ""}
+      </span>
+      {edit && !open && <button onClick={() => setOpen(true)} className="text-sm font-medium hover:underline">Change</button>}
+      {open && (
+        <div className="flex w-full flex-wrap items-center gap-2 rounded-2xl bg-card p-3 ring-1 ring-border">
+          <div className="flex gap-1">
+            {DAYS.map((d, i) => (
+              <button key={d} type="button" onClick={() => setDays((x) => (x.includes(i) ? x.filter((y) => y !== i) : [...x, i].sort()))}
+                className={cn("h-8 w-10 rounded-lg text-xs font-semibold ring-1 ring-border", days.includes(i) ? "bg-foreground text-background" : "bg-card")}>{d}</button>
+            ))}
+          </div>
+          <Input type="time" value={from} onChange={(e) => setFrom(e.target.value)} className="h-9 w-28" aria-label="From" />
+          <span className="text-muted-foreground">to</span>
+          <Input type="time" value={to} onChange={(e) => setTo(e.target.value)} className="h-9 w-28" aria-label="To" />
+          <button onClick={() => save()} disabled={!days.length || !!from !== !!to} className="h-9 rounded-lg bg-foreground px-3 font-semibold text-background disabled:opacity-40">Save</button>
+          <button onClick={() => save(true)} className="h-9 rounded-lg bg-muted px-3 font-medium">All day</button>
+          <button onClick={() => setOpen(false)} className="h-9 px-2 text-muted-foreground">Cancel</button>
+          <p className="w-full text-xs text-muted-foreground">Outside these hours the category is hidden from the QR menu and staff can&apos;t add it to a check. Leave the times empty to limit only the days; an end time earlier than the start runs past midnight.</p>
+        </div>
+      )}
     </div>
   );
 }

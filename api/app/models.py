@@ -83,6 +83,8 @@ class MenuCategory(Base):
     sort: Mapped[int] = mapped_column(Integer, default=0)
     # Course phase for the service timeline: drinks | starters | mains | sides | desserts ("" = guess from the name)
     phase: Mapped[str] = mapped_column(String(12), default="")
+    # Serving hours, e.g. breakfast: {"days": [0..6] (Mon=0), "from": "07:00", "to": "11:00"}; {} = always
+    schedule: Mapped[dict] = mapped_column(JSON, default=dict)
 
 
 class MenuItem(Base):
@@ -101,6 +103,7 @@ class MenuItem(Base):
     tags: Mapped[list] = mapped_column(JSON, default=list)  # dietary / cuisine labels: ["Vegan", "Spicy", "South Indian"]
     allergens: Mapped[list] = mapped_column(JSON, default=list)  # keys from backoffice.ALLERGENS
     nutrition: Mapped[dict] = mapped_column(JSON, default=dict)  # {"kcal", "protein", "carbs", "fat"} per serving
+    channels: Mapped[list] = mapped_column(JSON, default=list)  # menurules.CHANNELS it sells on; [] = all
 
 
 class DiningTable(Base):

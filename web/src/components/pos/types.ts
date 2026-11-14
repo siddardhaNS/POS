@@ -6,8 +6,15 @@ export interface MenuItem {
   id: string; category_id: string; name: string; price: number; is_veg: boolean; station: string; available: boolean;
   modifiers: ModGroup[];
   description?: string; tags?: string[]; allergens?: string[]; nutrition?: Nutrition;
+  /** Sales channels it sells on; empty = all. */
+  channels?: MenuChannel[];
 }
-export interface Category { id: string; name: string; phase: string; phase_set: boolean; items: MenuItem[] }
+export type MenuChannel = "dine_in" | "takeaway" | "delivery" | "online" | "qr";
+export interface Schedule { days?: number[]; from?: string; to?: string }
+export interface Category {
+  id: string; name: string; phase: string; phase_set: boolean; items: MenuItem[];
+  schedule?: Schedule; schedule_label?: string; open_now?: boolean;
+}
 
 export interface Modifier { group: string; name: string; price: number }
 export interface Line {

@@ -12,7 +12,7 @@ from sqlalchemy.orm import Session, selectinload
 from ..db import get_db
 from ..deps import PERMISSIONS, Ctx, has_module, needs, require
 from ..live import ALL_TOPICS, audit
-from .. import phases
+from .. import menurules, phases
 from ..models import DiningTable, Kot, LiveRev, MenuCategory, MenuItem, ModifierGroup, Order, OrderItem, Payment, ServiceRequest, Tenant, now
 from ..stock import deduct_for_order
 
@@ -332,6 +332,14 @@ class AddItemIn(BaseModel):
     seat: int = Field(default=0, ge=0, le=40)
 
 
+def check_sellable(db: Session, ctx: Ctx, m: MenuItem, channel: str) -> None:
+    """Out of stock, not offered on this channel, or outside its category's serving hours: refuse."""
+    if not m.available:
+        raise HTTPException(409, f"{m.name} is out of stock")
+    c = db.get(MenuCategory, m.category_id)
+    menurules.check_sellable(m.name, m.channels, c.name if c else "", c.schedule if c else {}, channel, tenant_tz(ctx.tenant))
+
+
 def resolve_modifiers(db: Session, ctx: Ctx, m: MenuItem, ids: list[str]) -> list[dict]:
     groups = db.scalars(select(ModifierGroup).where(ModifierGroup.menu_item_id == m.id, ModifierGroup.tenant_id == ctx.tenant_id)
                         .options(selectinload(ModifierGroup.options)).order_by(ModifierGroup.sort)).all()
@@ -356,8 +364,7 @@ def add_item(oid: str, body: AddItemIn, ctx: Ctx = Depends(require("order")), db
     m = db.scalar(select(MenuItem).where(MenuItem.id == body.menu_item_id, MenuItem.tenant_id == ctx.tenant_id))
     if not m:
         raise HTTPException(404, "Menu item not found")
-    if not m.available:
-        raise HTTPException(409, f"{m.name} is out of stock")
+    check_sellable(db, ctx, m, menurules.channel_of(o.channel))
     mods = resolve_modifiers(db, ctx, m, body.modifier_ids)
     unit = m.price + sum((Decimal(str(x["price"])) for x in mods), Decimal(0))
     note = body.note.strip()

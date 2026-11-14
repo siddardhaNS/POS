@@ -8,7 +8,7 @@ from pydantic import BaseModel, Field
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session, selectinload
 
-from .. import phases
+from .. import menurules, phases
 from ..db import get_db
 from ..deps import Ctx, require
 from ..deps import PERMISSIONS
@@ -36,7 +36,7 @@ def item_out(m: MenuItem, groups: list[ModifierGroup] | None = None) -> dict:
     return {"id": m.id, "category_id": m.category_id, "name": m.name, "price": money(m.price),
             "is_veg": m.is_veg, "station": m.station, "available": m.available,
             "description": m.description or "", "tags": m.tags or [], "allergens": m.allergens or [],
-            "nutrition": m.nutrition or {},
+            "nutrition": m.nutrition or {}, "channels": m.channels or [],
             "modifiers": [group_out(g) for g in (groups or [])]}
 
 
@@ -57,8 +57,14 @@ def _menu(ctx: Ctx, db: Session):
     for g in db.scalars(select(ModifierGroup).where(ModifierGroup.tenant_id == ctx.tenant_id)
                         .options(selectinload(ModifierGroup.options)).order_by(ModifierGroup.sort)):
         groups.setdefault(g.menu_item_id, []).append(g)
-    return [{"id": c.id, "name": c.name, "phase": phases.effective(c.phase, c.name), "phase_set": c.phase in phases.PHASES,
-             "items": [item_out(m, groups.get(m.id)) for m in items if m.category_id == c.id]} for c in cats]
+    tz = tenant_tz(ctx.tenant)
+    return [{**category_out(c, tz), "items": [item_out(m, groups.get(m.id)) for m in items if m.category_id == c.id]} for c in cats]
+
+
+def category_out(c: MenuCategory, tz) -> dict:
+    return {"id": c.id, "name": c.name, "phase": phases.effective(c.phase, c.name), "phase_set": c.phase in phases.PHASES,
+            "schedule": c.schedule or {}, "schedule_label": menurules.schedule_label(c.schedule),
+            "open_now": menurules.open_now(c.schedule, tz)}
 
 
 class CategoryIn(BaseModel):
@@ -71,12 +77,13 @@ def add_category(body: CategoryIn, ctx: Ctx = Depends(require("menu_edit")), db:
     c = MenuCategory(tenant_id=ctx.tenant_id, name=body.name.strip(), sort=n)
     db.add(c)
     db.commit()
-    return {"id": c.id, "name": c.name, "phase": phases.effective(c.phase, c.name), "phase_set": False, "items": []}
+    return {**category_out(c, tenant_tz(ctx.tenant)), "items": []}
 
 
 class CategoryPatch(BaseModel):
     name: str | None = Field(default=None, min_length=1, max_length=80)
     phase: str | None = Field(default=None, pattern=r"^(|drinks|starters|mains|sides|desserts)$")  # "" = guess
+    schedule: dict | None = None  # {"days": [...], "from": "HH:MM", "to": "HH:MM"}; {} = always
 
 
 @router.patch("/menu/categories/{cid}")
@@ -88,8 +95,10 @@ def edit_category(cid: str, body: CategoryPatch, ctx: Ctx = Depends(require("men
         c.name = body.name.strip()
     if body.phase is not None:
         c.phase = body.phase
+    if body.schedule is not None:
+        c.schedule = menurules.clean_schedule(body.schedule)
     db.commit()
-    return {"id": c.id, "name": c.name, "phase": phases.effective(c.phase, c.name), "phase_set": c.phase in phases.PHASES}
+    return category_out(c, tenant_tz(ctx.tenant))
 
 
 class ItemIn(BaseModel):
@@ -103,6 +112,7 @@ class ItemIn(BaseModel):
     tags: list[str] = Field(default_factory=list, max_length=12)
     allergens: list[str] = Field(default_factory=list, max_length=14)
     nutrition: dict[str, float] = Field(default_factory=dict)
+    channels: list[str] = Field(default_factory=list, max_length=5)
 
 
 class ItemPatch(BaseModel):
@@ -116,6 +126,7 @@ class ItemPatch(BaseModel):
     tags: list[str] | None = Field(default=None, max_length=12)
     allergens: list[str] | None = Field(default=None, max_length=14)
     nutrition: dict[str, float] | None = None
+    channels: list[str] | None = Field(default=None, max_length=5)
 
 
 def clean_details(data: dict) -> dict:
@@ -145,7 +156,13 @@ def clean_details(data: dict) -> dict:
             if v is not None:
                 n[k] = round(float(v), 1)
         data["nutrition"] = n
-    return {k: v for k, v in data.items() if v is not None or k not in ("description", "tags", "allergens", "nutrition")}
+    if data.get("channels") is not None:
+        bad = set(data["channels"]) - set(menurules.CHANNELS)
+        if bad:
+            raise HTTPException(422, "Unknown channel: " + ", ".join(sorted(bad)))
+        picked = [c for c in menurules.CHANNELS if c in data["channels"]]
+        data["channels"] = [] if len(picked) == len(menurules.CHANNELS) else picked
+    return {k: v for k, v in data.items() if v is not None or k not in ("description", "tags", "allergens", "nutrition", "channels")}
 
 
 def own_category(db: Session, ctx: Ctx, cid: str) -> None:

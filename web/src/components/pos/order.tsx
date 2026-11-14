@@ -11,7 +11,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { api, can } from "@/lib/api";
 import { cn } from "@/lib/utils";
-import { allergenList, nutritionLine } from "@/lib/menu";
+import { allergenList, menuChannel, nutritionLine } from "@/lib/menu";
 import { printKot } from "./print";
 import { openDrawer, printOrder } from "./print-host";
 import { Empty, Live, METHOD_LABEL, Seg, VegDot, orderTitle, payMethods, round2, run, usePoll, usePos } from "./shared";
@@ -68,11 +68,15 @@ export function OrderScreen() {
 
   useEffect(() => { if (menu && !cat) setCat(menu.find((c) => c.name === "Mains")?.id ?? menu[0]?.id ?? null); }, [menu, cat]);
 
+  // Only dishes offered on this check's channel; categories outside their serving hours stay visible but locked.
+  const channel = menuChannel(order?.channel ?? "dine_in");
+  const closed = useMemo(() => new Set((menu ?? []).filter((c) => c.open_now === false).map((c) => c.id)), [menu]);
   const items = useMemo(() => {
     if (!menu) return [];
-    if (q) return menu.flatMap((c) => c.items).filter((m) => m.name.toLowerCase().includes(q.toLowerCase()));
-    return menu.find((c) => c.id === cat)?.items ?? [];
-  }, [menu, cat, q]);
+    const sells = (m: MenuItem) => !m.channels?.length || m.channels.includes(channel);
+    if (q) return menu.flatMap((c) => c.items).filter((m) => sells(m) && m.name.toLowerCase().includes(q.toLowerCase()));
+    return (menu.find((c) => c.id === cat)?.items ?? []).filter(sells);
+  }, [menu, cat, q, channel]);
 
   if (!orderId) return <Empty>Pick a table on the floor, or start a takeaway order.</Empty>;
   if (!order) return <Empty>Loading check…</Empty>;
@@ -88,6 +92,10 @@ export function OrderScreen() {
 
   async function add(m: MenuItem, extra?: { modifier_ids: string[]; qty: number; note: string }) {
     if (!m.available) return toast.error(`${m.name} is out of stock`);
+    if (closed.has(m.category_id)) {
+      const c = menu?.find((x) => x.id === m.category_id);
+      return toast.error(`${c?.name ?? "This category"} is served ${c?.schedule_label ?? "at other times"}`);
+    }
     if (!extra && m.modifiers.length) return setCustom(m);
     const o = await run(api<Order>(`/orders/${order!.id}/items`, { body: { menu_item_id: m.id, course, seat, ...extra } }));
     if (o) { setOrder(o); setCustom(null); }
@@ -140,17 +148,18 @@ export function OrderScreen() {
             <button key={c.id} onClick={() => { setCat(c.id); setQ(""); }}
               className={cn("shrink-0 rounded-xl px-4 py-2.5 text-sm font-medium transition",
                 cat === c.id && !q ? "bg-foreground text-background" : "bg-card text-[#5d5a53] ring-1 ring-border")}>
-              {c.name}
+              {c.name}{c.open_now === false && <span className="ml-1.5 text-[11px] font-normal opacity-70">{c.schedule_label}</span>}
             </button>
           ))}
         </div>
         <div className="grid min-h-0 flex-1 auto-rows-min grid-cols-2 gap-3 overflow-y-auto pb-4 sm:grid-cols-3 xl:grid-cols-4">
           {items.map((m) => {
             const n = qtyOf(m.id);
+            const off = closed.has(m.category_id);
             return (
               <button key={m.id} onClick={() => open && add(m)} disabled={!m.available || !open}
                 className={cn("relative flex min-h-28 flex-col rounded-2xl border bg-card p-4 text-left transition active:scale-[0.98]",
-                  n ? "border-foreground" : "border-border hover:border-foreground/30", !m.available && "opacity-45")}>
+                  n ? "border-foreground" : "border-border hover:border-foreground/30", (!m.available || off) && "opacity-45")}>
                 <div className="flex items-start gap-2"><VegDot veg={m.is_veg} /><span className="text-[14.5px] font-medium leading-snug">{m.name}</span></div>
                 {(!!m.allergens?.length || !!m.tags?.length) && (
                   <div className="mt-1 truncate text-[11px] text-muted-foreground" title={m.allergens?.length ? `Contains ${allergenList(m.allergens)}` : undefined}>
@@ -159,7 +168,7 @@ export function OrderScreen() {
                 )}
                 <div className="mt-auto flex items-end justify-between pt-3">
                   <span className="font-mono text-sm text-muted-foreground">
-                    {m.available ? fmt(m.price) : "86'd"}
+                    {!m.available ? "86'd" : off ? "Not now" : fmt(m.price)}
                     {m.modifiers.length > 0 && m.available && <span className="ml-1.5 font-sans text-[11px] text-saffron-deep">+ options</span>}
                   </span>
                   {n > 0 && <span className="grid size-7 place-items-center rounded-full bg-foreground font-mono text-xs font-semibold text-background">{n}</span>}
