@@ -2,7 +2,7 @@
 
 import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { Activity, Armchair, BarChart3, Bike, Boxes, CalendarClock, Clock, MapPin, ChefHat, History, LayoutGrid, Lock, Menu as MenuIcon, ReceiptText, Settings, UtensilsCrossed, Users, Wallet, X } from "lucide-react";
+import { Activity, Armchair, Contact, BarChart3, Bike, Boxes, CalendarClock, Clock, MapPin, ChefHat, History, LayoutGrid, Lock, Menu as MenuIcon, ReceiptText, Settings, UtensilsCrossed, Users, Wallet, X } from "lucide-react";
 import { MenuAdmin, Staff } from "@/components/pos/backoffice";
 import { ReportsScreen } from "@/components/pos/reports";
 import { CashScreen } from "@/components/pos/cash";
@@ -10,6 +10,7 @@ import { OrdersScreen } from "@/components/pos/history";
 import { SettingsScreen } from "@/components/pos/settings";
 import { ActivityScreen } from "@/components/pos/activity";
 import { FloorPlanEditor } from "@/components/pos/floorplan";
+import { CustomersScreen } from "@/components/pos/customers";
 import { InventoryScreen } from "@/components/pos/inventory";
 import { TimesheetsScreen } from "@/components/pos/timesheets";
 import { ReservationsScreen } from "@/components/pos/reservations";
@@ -32,6 +33,7 @@ const MODULES: { k: Screen; l: string; perm: string; module?: string; group: "SE
   { k: "online", l: "Online orders", perm: "online", module: "online", group: "SERVICE", icon: Bike },
   { k: "kds", l: "Kitchen", perm: "kds", group: "SERVICE", icon: ChefHat },
   { k: "cash", l: "Cash drawer", perm: "cash", group: "SERVICE", icon: Wallet },
+  { k: "customers", l: "Customers", perm: "customers", group: "SERVICE", icon: Contact },
   { k: "dash", l: "Reports", perm: "reports", group: "MANAGE", icon: BarChart3 },
   { k: "menu", l: "Menu", perm: "menu", group: "MANAGE", icon: UtensilsCrossed },
   { k: "inventory", l: "Inventory", perm: "inventory_waste", module: "inventory", group: "MANAGE", icon: Boxes },
@@ -239,6 +241,7 @@ function ShellInner({ s, screen, go, orderId, payNow, allowed, navOpen, setNavOp
             {screen === "timesheets" && <TimesheetsScreen />}
             {screen === "locations" && <LocationsScreen />}
             {screen === "reservations" && <ReservationsScreen />}
+            {screen === "customers" && <CustomersScreen />}
           </main>
         </div>
       </div>

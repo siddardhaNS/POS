@@ -153,6 +153,7 @@ class Order(Base):
     customer_name: Mapped[str] = mapped_column(String(120), default="")
     customer_phone: Mapped[str] = mapped_column(String(40), default="")
     customer_gstin: Mapped[str] = mapped_column(String(15), default="")  # B2B invoice: the buyer's GSTIN / tax ID
+    customer_id: Mapped[str | None] = mapped_column(ForeignKey("customers.id", ondelete="SET NULL"), nullable=True, index=True)
     # Invoice number, given when the check is paid: sequential per financial year
     invoice_no: Mapped[str] = mapped_column(String(40), default="", index=True)
     invoice_fy: Mapped[str] = mapped_column(String(9), default="")
@@ -693,4 +694,26 @@ class TaxRate(Base):
     rate: Mapped[Decimal] = mapped_column(Numeric(6, 5))
     components: Mapped[list] = mapped_column(JSON, default=list)  # [{"name": "CGST", "rate": 0.025}, ...]
     sort: Mapped[int] = mapped_column(Integer, default=0)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now)
+
+
+# ---------- Customers ----------
+
+class Customer(Base):
+    """A guest the restaurant knows, keyed by phone. Checks link to them; visits and spend come from those checks."""
+    __tablename__ = "customers"
+    __table_args__ = (UniqueConstraint("tenant_id", "phone"),)
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=uid)
+    tenant_id: Mapped[str] = mapped_column(ForeignKey("tenants.id", ondelete="CASCADE"), index=True)
+    name: Mapped[str] = mapped_column(String(120), default="")
+    phone: Mapped[str] = mapped_column(String(20), index=True)  # digits only, with country code when given
+    email: Mapped[str] = mapped_column(String(200), default="")
+    birthday: Mapped[date | None] = mapped_column(Date, nullable=True)
+    anniversary: Mapped[date | None] = mapped_column(Date, nullable=True)
+    gstin: Mapped[str] = mapped_column(String(15), default="")
+    address: Mapped[str] = mapped_column(Text, default="")
+    tags: Mapped[list] = mapped_column(JSON, default=list)  # "Regular", "VIP", "Corporate"...
+    notes: Mapped[str] = mapped_column(Text, default="")
+    points: Mapped[int] = mapped_column(Integer, default=0)  # loyalty balance
+    marketing_ok: Mapped[bool] = mapped_column(Boolean, default=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now)

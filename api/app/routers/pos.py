@@ -13,7 +13,7 @@ from sqlalchemy.orm import Session, selectinload
 from ..db import get_db
 from ..deps import PERMISSIONS, Ctx, has_module, needs, require
 from ..live import ALL_TOPICS, audit
-from .. import menurules, phases, taxes
+from .. import crm, menurules, phases, taxes
 from ..models import CreditNote, DiningTable, Kot, LiveRev, MenuCategory, MenuItem, ModifierGroup, Order, OrderItem, Payment, ServiceRequest, Tenant, now
 from ..stock import deduct_for_order
 
@@ -77,7 +77,7 @@ def order_out(o: Order) -> dict:
     return {
         "id": o.id, "number": o.number, "table_id": o.table_id, "table": o.table.name if o.table else None,
         "channel": o.channel, "status": o.status, "customer_name": o.customer_name,
-        "customer_phone": o.customer_phone, "customer_gstin": o.customer_gstin, "guests": o.guests, "invoice_no": o.invoice_no,
+        "customer_phone": o.customer_phone, "customer_gstin": o.customer_gstin, "customer_id": o.customer_id, "guests": o.guests, "invoice_no": o.invoice_no,
         "tax_breakdown": taxes.breakdown(o, o.tenant.tax_rate, o.tenant.tax_label, line_total) if o.items else [],
         "subtotal": money(o.subtotal), "tax": money(o.tax), "tip": money(o.tip), "total": money(o.total),
         "discount": {"kind": o.discount_kind, "value": money(o.discount_value), "amount": money(o.discount_amount),
@@ -270,6 +270,7 @@ def new_order(body: NewOrderIn, ctx: Ctx = Depends(require("order")), db: Sessio
     o = Order(tenant_id=ctx.tenant_id, number=next_number(db, Order, ctx.tenant_id), channel=body.channel,
               customer_name=body.customer_name.strip(), customer_phone=body.customer_phone.strip(), opened_by=ctx.user.id)
     db.add(o)
+    crm.link(db, ctx.tenant, o)
     db.commit()
     return order_out(load_order(db, ctx, o.id))
 
@@ -331,6 +332,8 @@ def edit_order(oid: str, body: OrderPatch, ctx: Ctx = Depends(require("order")),
         data["customer_gstin"] = g
     for k, v in data.items():
         setattr(o, k, v.strip() if isinstance(v, str) else v)
+    if "customer_phone" in data:
+        crm.link(db, ctx.tenant, o)
     return save(db, ctx, o)
 
 

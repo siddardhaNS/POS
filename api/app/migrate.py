@@ -51,6 +51,7 @@ COLUMNS: dict[str, list[tuple[str, str, str | None]]] = {
     "orders": [
         ("customer_phone", "VARCHAR(40) NOT NULL DEFAULT ''", None),
         ("customer_gstin", "VARCHAR(15) NOT NULL DEFAULT ''", None),
+        ("customer_id", "VARCHAR(36) NULL REFERENCES customers(id) ON DELETE SET NULL", None),
         ("invoice_no", "VARCHAR(40) NOT NULL DEFAULT ''", None),
         ("invoice_fy", "VARCHAR(9) NOT NULL DEFAULT ''", None),
         ("invoice_seq", "INTEGER NULL", None),

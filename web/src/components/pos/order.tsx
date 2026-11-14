@@ -539,7 +539,15 @@ function GuestsDialog({ order, onClose, onUpdate }: { order: Order; onClose: () 
   const [name, setName] = useState(order.customer_name);
   const [phone, setPhone] = useState(order.customer_phone);
   const [gstin, setGstin] = useState(order.customer_gstin ?? "");
-  const { s } = usePos();
+  const [known, setKnown] = useState<{ name: string; visits: number; spend: number; points: number; notes: string; tags: string[]; gstin: string } | null>(null);
+  async function lookup(p: string) {
+    if (p.replace(/D/g, "").length < 6) return setKnown(null);
+    const c = await api<typeof known>(`/customers/lookup?phone=${encodeURIComponent(p)}`).catch(() => null);
+    setKnown(c);
+    if (c?.name && !name) setName(c.name);
+    if (c?.gstin && !gstin) setGstin(c.gstin);
+  }
+  const { s, fmt } = usePos();
   const gst = s.tenant?.market === "IN";
   async function save() {
     const o = await run(api<Order>(`/orders/${order.id}`, { method: "PATCH", body: { guests, customer_name: name, customer_phone: phone, ...(gst ? { customer_gstin: gstin } : {}) } }));
@@ -551,7 +559,14 @@ function GuestsDialog({ order, onClose, onUpdate }: { order: Order; onClose: () 
         <DialogHeader><DialogTitle className="text-xl">Guests & customer</DialogTitle></DialogHeader>
         <div className="flex items-center justify-between"><Label>Guests</Label><Stepper value={guests} onChange={setGuests} /></div>
         <div className="space-y-2"><Label>Customer name</Label><Input value={name} onChange={(e) => setName(e.target.value)} className="h-10" maxLength={120} /></div>
-        <div className="space-y-2"><Label>Phone</Label><Input value={phone} onChange={(e) => setPhone(e.target.value)} type="tel" className="h-10" maxLength={40} /></div>
+        <div className="space-y-2"><Label>Phone</Label><Input value={phone} onChange={(e) => setPhone(e.target.value)} onBlur={(e) => lookup(e.target.value)} type="tel" className="h-10" maxLength={40} />
+          {known && (
+            <div className="rounded-xl bg-leaf/10 p-3 text-sm">
+              <div className="font-medium">Returning guest{known.name ? ` · ${known.name}` : ""}</div>
+              <div className="text-xs text-muted-foreground">{known.visits} visit{known.visits === 1 ? "" : "s"} · spent {fmt(known.spend)}{known.points ? ` · ${known.points} points` : ""}{known.tags.length ? ` · ${known.tags.join(", ")}` : ""}</div>
+              {known.notes && <div className="mt-1 text-xs italic">{known.notes}</div>}
+            </div>
+          )}</div>
         {gst && (
           <div className="space-y-2"><Label>Customer GSTIN (business invoice)</Label>
             <Input value={gstin} onChange={(e) => setGstin(e.target.value.toUpperCase())} placeholder="29ABCDE1234F1Z5" className="h-10 font-mono" maxLength={15} />
