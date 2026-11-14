@@ -310,7 +310,48 @@ def tax_report(db: Session, tenant_ids: list[str], p: Period) -> dict:
             for d in sales_by_day(db, tenant_ids, p)]
     taxable, tax = sum(d["taxable"] for d in days), sum(d["tax"] for d in days)
     return {"taxable": round(taxable, 2), "tax": round(tax, 2),
-            "effective_rate": round(tax / taxable * 100, 3) if taxable else 0.0, "days": days}
+            "effective_rate": round(tax / taxable * 100, 3) if taxable else 0.0, "days": days,
+            **tax_detail(db, tenant_ids, p)}
+
+
+def tax_detail(db: Session, tenant_ids: list[str], p: Period) -> dict:
+    """Tax by component (CGST / SGST per rate), an HSN summary for GST returns, and credit notes that reverse tax."""
+    from .. import taxes
+    from ..models import CreditNote, Tenant
+    from .pos import line_total
+    tenants = {t.id: t for t in db.scalars(select(Tenant).where(Tenant.id.in_(tenant_ids)))}
+    orders = db.scalars(select(Order).where(Order.tenant_id.in_(tenant_ids), Order.status.in_(("paid", "refunded")),
+                                            Order.closed_at >= p.start_at, Order.closed_at < p.end_at)
+                        .options(selectinload(Order.items))).all()
+    by_part: dict[tuple, list] = {}
+    hsn: dict[tuple, list] = {}
+    b2b = 0
+    for o in orders:
+        t = tenants[o.tenant_id]
+        if o.customer_gstin:
+            b2b += 1
+        for b in taxes.breakdown(o, t.tax_rate, t.tax_label, line_total):
+            row = by_part.setdefault((b["name"], b["rate"]), [0.0, 0.0])
+            row[0] += b["taxable"]
+            row[1] += b["tax"]
+        f = taxes.discount_factor(o)
+        for i in o.items:
+            rate = taxes.line_rate(i, t.tax_rate)
+            net = line_total(i) * f
+            row = hsn.setdefault((i.hsn or "", float(rate) * 100), [0, Decimal(0), Decimal(0)])
+            row[0] += i.qty
+            row[1] += net
+            row[2] += net * rate
+    cn = db.execute(select(func.count(CreditNote.id), _sum(CreditNote.amount), _sum(CreditNote.tax)).where(
+        CreditNote.tenant_id.in_(tenant_ids), CreditNote.created_at >= p.start_at, CreditNote.created_at < p.end_at)).one()
+    return {
+        "by_rate": [{"name": n, "rate": r, "taxable": round(v[0], 2), "tax": round(v[1], 2)}
+                    for (n, r), v in sorted(by_part.items(), key=lambda kv: (-kv[0][1], kv[0][0]))],
+        "hsn": [{"hsn": h or "(none)", "rate": round(r, 3), "qty": v[0], "taxable": money(v[1]), "tax": money(v[2])}
+                for (h, r), v in sorted(hsn.items(), key=lambda kv: (kv[0][0] == "", kv[0][0], kv[0][1]))],
+        "b2b_invoices": b2b,
+        "credit_notes": {"count": cn[0], "amount": money(cn[1]), "tax": money(cn[2])},
+    }
 
 
 # ---------- Orders (for CSV and the end-of-day list) ----------

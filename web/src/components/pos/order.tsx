@@ -15,7 +15,7 @@ import { allergenList, menuChannel, nutritionLine } from "@/lib/menu";
 import { printKot } from "./print";
 import { openDrawer, printOrder } from "./print-host";
 import { Empty, Live, METHOD_LABEL, Seg, VegDot, orderTitle, payMethods, round2, run, usePoll, usePos } from "./shared";
-import type { Category, KotPrint, Line, MenuItem, Order, TableRow } from "./types";
+import { taxLines, type Category, type KotPrint, type Line, type MenuItem, type Order, type TableRow } from "./types";
 
 export type { Category, MenuItem, Order } from "./types";
 
@@ -279,7 +279,7 @@ export function OrderScreen() {
         <div className="space-y-1.5 border-t border-border px-5 py-4 text-sm">
           <Row l="Subtotal" v={fmt(order.subtotal)} />
           {order.discount.amount > 0 && <Row l={`Discount · ${order.discount.kind === "percent" ? `${order.discount.value}%` : "fixed"} · ${order.discount.reason}`} v={`−${fmt(order.discount.amount)}`} accent />}
-          <Row l={s.tenant?.tax_label || "Tax"} v={fmt(order.tax)} />
+          {taxLines(order, s.tenant?.tax_label || "Tax").map(([l, v]) => <Row key={l} l={l} v={fmt(v)} />)}
           {order.paid > 0 && <Row l="Paid so far" v={`−${fmt(order.paid)}`} />}
           <div className="flex items-baseline justify-between pt-1.5">
             <span className="font-semibold">{order.paid > 0 ? "Balance due" : "Total"}</span>
@@ -538,8 +538,11 @@ function GuestsDialog({ order, onClose, onUpdate }: { order: Order; onClose: () 
   const [guests, setGuests] = useState(order.guests);
   const [name, setName] = useState(order.customer_name);
   const [phone, setPhone] = useState(order.customer_phone);
+  const [gstin, setGstin] = useState(order.customer_gstin ?? "");
+  const { s } = usePos();
+  const gst = s.tenant?.market === "IN";
   async function save() {
-    const o = await run(api<Order>(`/orders/${order.id}`, { method: "PATCH", body: { guests, customer_name: name, customer_phone: phone } }));
+    const o = await run(api<Order>(`/orders/${order.id}`, { method: "PATCH", body: { guests, customer_name: name, customer_phone: phone, ...(gst ? { customer_gstin: gstin } : {}) } }));
     if (o) onUpdate(o);
   }
   return (
@@ -549,6 +552,11 @@ function GuestsDialog({ order, onClose, onUpdate }: { order: Order; onClose: () 
         <div className="flex items-center justify-between"><Label>Guests</Label><Stepper value={guests} onChange={setGuests} /></div>
         <div className="space-y-2"><Label>Customer name</Label><Input value={name} onChange={(e) => setName(e.target.value)} className="h-10" maxLength={120} /></div>
         <div className="space-y-2"><Label>Phone</Label><Input value={phone} onChange={(e) => setPhone(e.target.value)} type="tel" className="h-10" maxLength={40} /></div>
+        {gst && (
+          <div className="space-y-2"><Label>Customer GSTIN (business invoice)</Label>
+            <Input value={gstin} onChange={(e) => setGstin(e.target.value.toUpperCase())} placeholder="29ABCDE1234F1Z5" className="h-10 font-mono" maxLength={15} />
+            <p className="text-xs text-muted-foreground">Printed on the invoice with the customer name, so the business can claim input tax.</p></div>
+        )}
         <button onClick={save} className={cn(big, "bg-foreground text-background")}>Save</button>
       </DialogContent>
     </Dialog>
@@ -896,7 +904,7 @@ function PayPanel({ order, title, onBack, onUpdate, onDone }: {
         <div className="mt-4 space-y-1.5 border-t border-dashed border-border pt-4 text-sm">
           <Row l="Subtotal" v={fmt(order.subtotal)} />
           {order.discount.amount > 0 && <Row l={`Discount · ${order.discount.reason}`} v={`−${fmt(order.discount.amount)}`} accent />}
-          <Row l={s.tenant?.tax_label || "Tax"} v={fmt(order.tax)} />
+          {taxLines(order, s.tenant?.tax_label || "Tax").map(([l, v]) => <Row key={l} l={l} v={fmt(v)} />)}
           {order.payments.filter((p) => p.kind === "payment").map((p) => (
             <Row key={p.id} l={`Paid · ${METHOD_LABEL[p.method] ?? p.method}${p.tip ? ` (+${fmt(p.tip)} tip)` : ""}`} v={`−${fmt(p.amount)}`} />
           ))}

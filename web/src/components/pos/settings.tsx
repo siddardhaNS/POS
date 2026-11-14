@@ -11,7 +11,7 @@ import { cn } from "@/lib/utils";
 import { printReceipt } from "./print";
 import { PrintersPanel } from "./printers";
 import { Seg, run, usePos } from "./shared";
-import type { Order } from "./types";
+import type { Order, TaxRates } from "./types";
 
 
 const ZONES = ["Asia/Kolkata", "Asia/Dubai", "Asia/Singapore", "Europe/London", "Europe/Berlin", "America/New_York", "America/Chicago",
@@ -58,7 +58,10 @@ function TenantForm({ tab }: { tab: "restaurant" | "tax" | "receipts" }) {
   const [t, setT] = useState<Tenant>(s.tenant!);
   const [rate, setRate] = useState(String(Math.round((s.tenant?.tax_rate ?? 0) * 100000) / 1000));
   const [busy, setBusy] = useState(false);
+  const [classes, setClasses] = useState<TaxRates | null>(null);
   const set = (p: Partial<Tenant>) => setT((x) => ({ ...x, ...p }));
+  const hasClasses = !!classes?.rates.length;
+  useEffect(() => { if (tab === "tax") api<TaxRates>("/tax-rates").then(setClasses).catch(() => {}); }, [tab]);
 
   useEffect(() => { api<Tenant>("/settings").then((x) => { setT(x); setTenant(x); }).catch(() => {}); }, [setTenant]);
 
@@ -69,7 +72,8 @@ function TenantForm({ tab }: { tab: "restaurant" | "tax" | "receipts" }) {
       method: "PATCH",
       body: {
         name: t.name, phone: t.phone, address: t.address, city: t.city, tax_id: t.tax_id, timezone: t.timezone,
-        tax_label: t.tax_label, tax_rate: (Number(rate) || 0) / 100, tips_enabled: t.tips_enabled,
+        ...(hasClasses ? {} : { tax_label: t.tax_label, tax_rate: (Number(rate) || 0) / 100 }), tips_enabled: t.tips_enabled,
+        invoice_prefix: t.invoice_prefix ?? "",
         receipt_footer: t.receipt_footer, auto_print_kot: t.auto_print_kot, auto_print_receipt: t.auto_print_receipt,
       },
     }), "Settings saved");
@@ -106,11 +110,17 @@ function TenantForm({ tab }: { tab: "restaurant" | "tax" | "receipts" }) {
       )}
       {tab === "tax" && (
         <>
-          <div className="grid gap-4 sm:grid-cols-2">
+          {classes && <TaxClasses data={classes} onChange={(c) => { setClasses(c); api<Tenant>("/settings").then((x) => { setT((cur) => ({ ...cur, tax_rate: x.tax_rate, tax_label: x.tax_label, default_tax_id: x.default_tax_id })); setTenant(x); }).catch(() => {}); }} />}
+          {!hasClasses && <div className="grid gap-4 sm:grid-cols-2">
             <Field label="Tax rate (%)"><Input type="number" min={0} max={50} step="0.001" value={rate} onChange={(e) => setRate(e.target.value)} className="h-11 font-mono" /></Field>
             <Field label="Tax label on receipts"><Input value={t.tax_label} onChange={(e) => set({ tax_label: e.target.value })} className="h-11" /></Field>
+          </div>}
+          <div className="grid gap-4 sm:grid-cols-2">
+            <Field label={s.tenant?.market === "IN" ? "GSTIN" : "Tax / registration number"} hint={s.tenant?.market === "IN" ? "Printed on invoices; with it, paid checks print as a Tax Invoice" : "Printed on receipts if set"}>
+              <Input value={t.tax_id ?? ""} onChange={(e) => set({ tax_id: e.target.value })} className="h-11 font-mono" /></Field>
+            <Field label="Invoice number prefix" hint={`Paid checks get the next number of the financial year, e.g. ${[(t.invoice_prefix ?? "").toUpperCase(), s.tenant?.market === "IN" ? "2026-27" : "2026", "00001"].filter(Boolean).join("/")}`}>
+              <Input value={t.invoice_prefix ?? ""} maxLength={12} placeholder="Optional, e.g. BLR" onChange={(e) => set({ invoice_prefix: e.target.value.replace(/[^A-Za-z0-9-]/g, "") })} className="h-11 font-mono" /></Field>
           </div>
-          <Field label="Tax / registration number" hint="Printed on receipts if set"><Input value={t.tax_id ?? ""} onChange={(e) => set({ tax_id: e.target.value })} className="h-11" /></Field>
           <Toggle on={!!t.tips_enabled} onChange={(v) => set({ tips_enabled: v })} label="Ask for tips" hint="Show tip options when taking payment, and a tip line on printed bills." />
         </>
       )}
@@ -132,4 +142,85 @@ function TenantForm({ tab }: { tab: "restaurant" | "tax" | "receipts" }) {
 
 function Field({ label, hint, children }: { label: string; hint?: string; children: React.ReactNode }) {
   return <div className="space-y-2"><Label>{label}</Label>{children}{hint && <p className="text-xs text-muted-foreground">{hint}</p>}</div>;
+}
+
+/* ---------- Tax classes ---------- */
+
+type DraftRate = { id?: string; name: string; pct: string; split: boolean };
+
+function TaxClasses({ data, onChange }: { data: TaxRates; onChange: (d: TaxRates) => void }) {
+  const { s } = usePos();
+  const gst = s.tenant?.market === "IN";
+  const [draft, setDraft] = useState<DraftRate | null>(null);
+
+  async function save() {
+    if (!draft) return;
+    const rate = (Number(draft.pct) || 0) / 100;
+    const body = {
+      name: draft.name.trim() || (gst ? `GST ${draft.pct}%` : `Tax ${draft.pct}%`), rate,
+      components: draft.split && rate ? [{ name: "CGST", rate: rate / 2 }, { name: "SGST", rate: rate / 2 }] : [],
+    };
+    const r = draft.id ? await run(api<TaxRates>(`/tax-rates/${draft.id}`, { method: "PUT", body }), "Tax class saved")
+      : await run(api<TaxRates>("/tax-rates", { body }), `${body.name} added`);
+    if (r) { onChange(r); setDraft(null); }
+  }
+  async function makeDefault(id: string) {
+    const r = await run(api<TaxRates>("/tax-rates-default", { method: "PUT", body: { id } }), "Default tax class changed");
+    if (r) onChange(r);
+  }
+  async function remove(id: string, name: string) {
+    if (!window.confirm(`Delete ${name}? Dishes in it go back to their category's or the default class.`)) return;
+    const r = await run(api<TaxRates>(`/tax-rates/${id}`, { method: "DELETE" }), `${name} deleted`);
+    if (r) onChange(r);
+  }
+
+  return (
+    <div className="space-y-3 rounded-2xl bg-card p-5 ring-1 ring-border">
+      <div>
+        <div className="font-semibold">Tax classes</div>
+        <p className="text-sm text-muted-foreground">
+          {data.rates.length ? "Put dishes or whole categories in a class from the Menu screen. Everything else uses the default." :
+            `Every dish is taxed at ${(data.fallback.rate * 100).toFixed(3).replace(/\.?0+$/, "")}% (${data.fallback.name}). Add classes when some dishes are taxed differently${gst ? ", e.g. GST 18% on packaged drinks" : ""}.`}
+        </p>
+      </div>
+      {data.rates.map((r) => (
+        <div key={r.id} className="flex flex-wrap items-center gap-3 rounded-xl bg-muted/50 px-4 py-3">
+          <div className="min-w-0 flex-1">
+            <div className="flex items-center gap-2 font-medium">{r.name}
+              {data.default_id === r.id && <span className="rounded bg-foreground px-1.5 text-[11px] font-semibold text-background">Default</span>}</div>
+            <div className="text-xs text-muted-foreground">
+              {r.components.length ? r.components.map((c) => `${c.name} ${+(c.rate * 100).toFixed(3)}%`).join(" + ") : `${+(r.rate * 100).toFixed(3)}%`}
+              {r.items ? ` · ${r.items} dish${r.items === 1 ? "" : "es"}` : ""}
+            </div>
+          </div>
+          {data.default_id !== r.id && <button type="button" onClick={() => makeDefault(r.id)} className="text-sm font-medium hover:underline">Make default</button>}
+          <button type="button" onClick={() => setDraft({ id: r.id, name: r.name, pct: String(+(r.rate * 100).toFixed(3)), split: r.components.length > 1 })} className="text-sm font-medium hover:underline">Edit</button>
+          {data.default_id !== r.id && <button type="button" onClick={() => remove(r.id, r.name)} className="text-sm text-destructive hover:underline">Delete</button>}
+        </div>
+      ))}
+      {draft ? (
+        <div className="grid gap-3 rounded-xl p-4 ring-1 ring-foreground sm:grid-cols-[1fr_110px]">
+          <Input value={draft.name} onChange={(e) => setDraft({ ...draft, name: e.target.value })} placeholder={gst ? "GST 18%" : "Sales tax"} maxLength={60} className="h-10"
+            onKeyDown={(e) => e.key === "Enter" && e.preventDefault()} />
+          <Input type="number" min={0} max={50} step="0.001" value={draft.pct} onChange={(e) => setDraft({ ...draft, pct: e.target.value })} placeholder="%" className="h-10 font-mono"
+            onKeyDown={(e) => e.key === "Enter" && e.preventDefault()} />
+          {gst && (
+            <label className="flex items-center gap-2 text-sm sm:col-span-2">
+              <input type="checkbox" checked={draft.split} onChange={(e) => setDraft({ ...draft, split: e.target.checked })} className="size-4" />
+              Split into CGST + SGST halves on the bill (sales within your state)
+            </label>
+          )}
+          <div className="flex gap-2 sm:col-span-2">
+            <button type="button" onClick={save} className="h-10 rounded-lg bg-foreground px-4 text-sm font-semibold text-background">Save class</button>
+            <button type="button" onClick={() => setDraft(null)} className="h-10 rounded-lg bg-muted px-4 text-sm font-medium">Cancel</button>
+          </div>
+        </div>
+      ) : (
+        <button type="button" onClick={() => setDraft({ name: "", pct: data.rates.length ? "" : String(+(data.fallback.rate * 100).toFixed(3)), split: gst })}
+          className="h-10 rounded-xl border-[1.5px] border-dashed border-border px-4 text-sm font-medium">
+          + {data.rates.length ? "Add tax class" : "Set up tax classes"}
+        </button>
+      )}
+    </div>
+  );
 }

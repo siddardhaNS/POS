@@ -33,6 +33,8 @@ COLUMNS: dict[str, list[tuple[str, str, str | None]]] = {
         ("brand_id", "VARCHAR(36) NULL REFERENCES brands(id) ON DELETE SET NULL", None),
         ("location_name", "VARCHAR(80) NOT NULL DEFAULT ''", None),
         ("qr_auto_send", "BOOLEAN NOT NULL DEFAULT FALSE", None),
+        ("default_tax_id", "VARCHAR(36) NULL REFERENCES tax_rates(id) ON DELETE SET NULL", None),
+        ("invoice_prefix", "VARCHAR(12) NOT NULL DEFAULT ''", None),
     ],
     "users": [
         ("hourly_rate", "NUMERIC(10,2) NOT NULL DEFAULT 0", None),
@@ -48,6 +50,10 @@ COLUMNS: dict[str, list[tuple[str, str, str | None]]] = {
     ],
     "orders": [
         ("customer_phone", "VARCHAR(40) NOT NULL DEFAULT ''", None),
+        ("customer_gstin", "VARCHAR(15) NOT NULL DEFAULT ''", None),
+        ("invoice_no", "VARCHAR(40) NOT NULL DEFAULT ''", None),
+        ("invoice_fy", "VARCHAR(9) NOT NULL DEFAULT ''", None),
+        ("invoice_seq", "INTEGER NULL", None),
         ("guests", "INTEGER NOT NULL DEFAULT 0", None),
         ("discount_kind", "VARCHAR(10) NOT NULL DEFAULT ''", None),
         ("discount_value", "NUMERIC(10,2) NOT NULL DEFAULT 0", None),
@@ -65,6 +71,10 @@ COLUMNS: dict[str, list[tuple[str, str, str | None]]] = {
         ("source", "VARCHAR(10) NOT NULL DEFAULT ''", None),
         ("price_list", "VARCHAR(80) NOT NULL DEFAULT ''", None),
         ("returned_qty", "INTEGER NOT NULL DEFAULT 0", None),
+        ("tax_rate", "NUMERIC(6,5) NULL", None),
+        ("tax_name", "VARCHAR(60) NOT NULL DEFAULT ''", None),
+        ("tax_parts", "JSON NOT NULL DEFAULT '[]'", None),
+        ("hsn", "VARCHAR(12) NOT NULL DEFAULT ''", None),
         ("station", "VARCHAR(40) NOT NULL DEFAULT ''",
          "UPDATE order_items oi SET station = mi.station FROM menu_items mi WHERE mi.id = oi.menu_item_id"),
     ],
@@ -79,10 +89,13 @@ COLUMNS: dict[str, list[tuple[str, str, str | None]]] = {
         ("allergens", "JSON NOT NULL DEFAULT '[]'", None),
         ("nutrition", "JSON NOT NULL DEFAULT '{}'", None),
         ("channels", "JSON NOT NULL DEFAULT '[]'", None),
+        ("tax_rate_id", "VARCHAR(36) NULL REFERENCES tax_rates(id) ON DELETE SET NULL", None),
+        ("hsn", "VARCHAR(12) NOT NULL DEFAULT ''", None),
     ],
     "menu_categories": [
         ("phase", "VARCHAR(12) NOT NULL DEFAULT ''", None),
         ("schedule", "JSON NOT NULL DEFAULT '{}'", None),
+        ("tax_rate_id", "VARCHAR(36) NULL REFERENCES tax_rates(id) ON DELETE SET NULL", None),
     ],
     "floor_sections": [
         ("layout", "JSON NOT NULL DEFAULT '{}'", None),
@@ -117,6 +130,7 @@ FROM dining_tables GROUP BY tenant_id, section
 def migrate(engine: Engine) -> None:
     had_payments = inspect(engine).has_table("payments")
     had_sections = inspect(engine).has_table("floor_sections")
+    had_taxes = inspect(engine).has_table("tax_rates")
     Base.metadata.create_all(engine)
     insp = inspect(engine)
     with engine.begin() as conn:
@@ -134,3 +148,19 @@ def migrate(engine: Engine) -> None:
             conn.execute(text(PAYMENTS_BACKFILL))
         if not had_sections:
             conn.execute(text(SECTIONS_BACKFILL))
+        if not had_taxes:
+            for stmt in TAX_BACKFILL.split(";"):
+                if stmt.strip():
+                    conn.execute(text(stmt))
+
+
+# Restaurants on GST get their current rate as a tax class split into CGST + SGST halves, set as the default
+# (once, when tax classes arrive). Others keep their single rate until they add classes.
+TAX_BACKFILL = """
+INSERT INTO tax_rates (id, tenant_id, name, rate, components, sort, created_at)
+SELECT md5(random()::text || id), id, 'GST ' || trim(trailing '.' from trim(trailing '0' from (tax_rate * 100)::text)) || '%', tax_rate,
+       json_build_array(json_build_object('name', 'CGST', 'rate', tax_rate / 2), json_build_object('name', 'SGST', 'rate', tax_rate / 2)),
+       0, now()
+FROM tenants WHERE market = 'IN';
+UPDATE tenants t SET default_tax_id = r.id FROM tax_rates r WHERE r.tenant_id = t.id AND t.market = 'IN';
+"""

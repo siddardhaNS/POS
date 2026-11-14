@@ -54,6 +54,8 @@ def market_price(inr: int, market: str) -> Decimal:
 
 def provision_tenant(db: Session, tenant: Tenant) -> None:
     """Give a newly approved restaurant a working floor and menu so they can ring a sale in minutes."""
+    from .taxes import ensure_starter_rates
+    ensure_starter_rates(db, tenant)
     if db.scalar(select(MenuCategory.id).where(MenuCategory.tenant_id == tenant.id).limit(1)):
         return
     cats = {}

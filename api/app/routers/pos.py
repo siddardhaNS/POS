@@ -1,5 +1,6 @@
 """Service-side endpoints: floor, orders, modifiers, discounts, KOTs, kitchen display, online orders,
 split payments, refunds and order history."""
+import re
 from datetime import date, datetime, timedelta
 from decimal import ROUND_HALF_UP, Decimal
 from zoneinfo import ZoneInfo
@@ -12,7 +13,7 @@ from sqlalchemy.orm import Session, selectinload
 from ..db import get_db
 from ..deps import PERMISSIONS, Ctx, has_module, needs, require
 from ..live import ALL_TOPICS, audit
-from .. import menurules, phases
+from .. import menurules, phases, taxes
 from ..models import CreditNote, DiningTable, Kot, LiveRev, MenuCategory, MenuItem, ModifierGroup, Order, OrderItem, Payment, ServiceRequest, Tenant, now
 from ..stock import deduct_for_order
 
@@ -20,6 +21,7 @@ router = APIRouter(tags=["pos"])
 CENT = Decimal("0.01")
 ONLINE_CHANNELS = {"swiggy", "zomato", "doordash", "ubereats", "website"}
 METHODS = r"^(cash|card|upi|tap|online|other)$"
+GSTIN = re.compile(r"^\d{2}[A-Z]{5}\d{4}[A-Z][1-9A-Z]Z[0-9A-Z]$")
 
 
 def money(v: Decimal | float | int | None) -> float:
@@ -50,7 +52,7 @@ def recompute(o: Order, tax_rate: Decimal) -> None:
     else:
         disc = Decimal(0)
     o.subtotal, o.discount_amount = q(sub), q(disc)
-    o.tax = q((o.subtotal - o.discount_amount) * tax_rate)
+    o.tax = taxes.order_tax(o, tax_rate, line_total)  # per line: dishes can sit in different tax classes
     o.tip = q(sum((p.tip for p in o.payments if p.kind == "payment"), Decimal(0)))
     o.total = o.subtotal - o.discount_amount + o.tax + o.tip
 
@@ -75,7 +77,8 @@ def order_out(o: Order) -> dict:
     return {
         "id": o.id, "number": o.number, "table_id": o.table_id, "table": o.table.name if o.table else None,
         "channel": o.channel, "status": o.status, "customer_name": o.customer_name,
-        "customer_phone": o.customer_phone, "guests": o.guests,
+        "customer_phone": o.customer_phone, "customer_gstin": o.customer_gstin, "guests": o.guests, "invoice_no": o.invoice_no,
+        "tax_breakdown": taxes.breakdown(o, o.tenant.tax_rate, o.tenant.tax_label, line_total) if o.items else [],
         "subtotal": money(o.subtotal), "tax": money(o.tax), "tip": money(o.tip), "total": money(o.total),
         "discount": {"kind": o.discount_kind, "value": money(o.discount_value), "amount": money(o.discount_amount),
                      "reason": o.discount_reason},
@@ -85,6 +88,7 @@ def order_out(o: Order) -> dict:
         "items": [{"id": i.id, "menu_item_id": i.menu_item_id, "name": i.name, "unit_price": money(i.unit_price),
                    "qty": i.qty, "note": i.note, "modifiers": i.modifiers or [], "comp_reason": i.comp_reason,
                    "course": i.course, "seat": i.seat, "station": i.station, "source": i.source, "price_list": i.price_list,
+                   "hsn": i.hsn, "tax_rate": float(i.tax_rate) * 100 if i.tax_rate is not None else None,
                    "line_total": money(line_total(i)), "sent": i.kot_id is not None, "done": i.done,
                    "paid": i.id in paid_lines, "returned_qty": i.returned_qty or 0} for i in o.items],
         "payments": [payment_out(p) for p in o.payments],
@@ -312,13 +316,20 @@ def get_order(oid: str, ctx: Ctx = Depends(require("order")), db: Session = Depe
 class OrderPatch(BaseModel):
     customer_name: str | None = Field(default=None, max_length=120)
     customer_phone: str | None = Field(default=None, max_length=40)
+    customer_gstin: str | None = Field(default=None, max_length=15)
     guests: int | None = Field(default=None, ge=0, le=99)
 
 
 @router.patch("/orders/{oid}")
 def edit_order(oid: str, body: OrderPatch, ctx: Ctx = Depends(require("order")), db: Session = Depends(get_db)):
     o = open_order(db, ctx, oid)
-    for k, v in body.model_dump(exclude_unset=True).items():
+    data = body.model_dump(exclude_unset=True)
+    if data.get("customer_gstin"):
+        g = data["customer_gstin"].strip().upper()
+        if ctx.tenant.market == "IN" and not GSTIN.match(g):
+            raise HTTPException(422, "That GSTIN doesn't look right: 15 characters like 29ABCDE1234F1Z5")
+        data["customer_gstin"] = g
+    for k, v in data.items():
         setattr(o, k, v.strip() if isinstance(v, str) else v)
     return save(db, ctx, o)
 
@@ -385,9 +396,11 @@ def add_item(oid: str, body: AddItemIn, ctx: Ctx = Depends(require("order")), db
     if line:
         line.qty += body.qty
     else:
-        o.items.append(OrderItem(tenant_id=ctx.tenant_id, menu_item_id=m.id, name=m.name, unit_price=unit,
-                                 qty=body.qty, note=note, modifiers=mods, course=body.course, seat=body.seat,
-                                 station=m.station, price_list=plist))
+        line = OrderItem(tenant_id=ctx.tenant_id, menu_item_id=m.id, name=m.name, unit_price=unit,
+                         qty=body.qty, note=note, modifiers=mods, course=body.course, seat=body.seat,
+                         station=m.station, price_list=plist)
+        taxes.Resolver(db, ctx.tenant).stamp(line, m)
+        o.items.append(line)
     return save(db, ctx, o)
 
 
@@ -579,6 +592,7 @@ def take_payment(db: Session, ctx: Ctx, o: Order, body: PaymentIn) -> dict:
         raise HTTPException(409, "Nothing to pay for")
     if balance(o) <= CENT / 2:  # fully comped or discounted: nothing to collect, just close it
         o.status, o.closed_at, o.payment_method = "paid", now(), o.payment_method or "comp"
+        taxes.assign_invoice(db, ctx.tenant, o, o.closed_at)
         if has_module(ctx.tenant, "inventory"):
             deduct_for_order(db, o, ctx.user.id)
         db.commit()
@@ -601,6 +615,7 @@ def take_payment(db: Session, ctx: Ctx, o: Order, body: PaymentIn) -> dict:
     if balance(o) <= CENT / 2:
         methods = {p.method for p in o.payments if p.kind == "payment"}
         o.status, o.closed_at = "paid", now()
+        taxes.assign_invoice(db, ctx.tenant, o, o.closed_at)
         o.payment_method = methods.pop() if len(methods) == 1 else "split"
         if has_module(ctx.tenant, "inventory"):
             deduct_for_order(db, o, ctx.user.id)
@@ -859,12 +874,15 @@ def inbound(body: OnlineIn, ctx: Ctx = Depends(require("online")), db: Session =
               status="new", customer_name=body.customer_name)
     db.add(o)
     pricing = menurules.Pricing(db, ctx.tenant, "online")
+    tax = taxes.Resolver(db, ctx.tenant)
     for it in body.items:
         m = db.scalar(select(MenuItem).where(MenuItem.id == it.menu_item_id, MenuItem.tenant_id == ctx.tenant_id))
         if m:
             price, plist = pricing.price(m)
-            o.items.append(OrderItem(tenant_id=ctx.tenant_id, menu_item_id=m.id, name=m.name, unit_price=price,
-                                     qty=it.qty, modifiers=[], station=m.station, price_list=plist))
+            line = OrderItem(tenant_id=ctx.tenant_id, menu_item_id=m.id, name=m.name, unit_price=price,
+                             qty=it.qty, modifiers=[], station=m.station, price_list=plist)
+            tax.stamp(line, m)
+            o.items.append(line)
     return save(db, ctx, o)
 
 

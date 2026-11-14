@@ -35,7 +35,13 @@ interface StaffRow {
 interface Staff { staff: StaffRow[]; previous?: StaffRow[] }
 type Summary = Record<string, { count: number; amount: number }>;
 interface Exceptions { summary: Summary; previous?: Summary; rows: { id: string; action: string; user: string; order_number: number | null; detail: string; amount: number | null; created_at: string }[] }
-interface Tax { label: string; rate: number; taxable: number; tax: number; effective_rate: number; days: { date: string; orders: number; taxable: number; tax: number }[]; previous?: { taxable: number; tax: number } }
+interface Tax {
+  label: string; rate: number; taxable: number; tax: number; effective_rate: number; days: { date: string; orders: number; taxable: number; tax: number }[];
+  previous?: { taxable: number; tax: number };
+  by_rate?: { name: string; rate: number; taxable: number; tax: number }[];
+  hsn?: { hsn: string; rate: number; qty: number; taxable: number; tax: number }[];
+  b2b_invoices?: number; credit_notes?: { count: number; amount: number; tax: number };
+}
 interface Eod {
   date: string; tax_label: string; totals: Totals; payments: Method[]; channels: Channel[]; exceptions: Summary; voided_checks: number;
   open_checks: number; open_value: number; first_order_at: string | null; last_order_at: string | null; hours: number[];
@@ -458,7 +464,7 @@ function ExceptionsTab({ q, start, end }: TabProps) {
 /* ---------- Tax ---------- */
 
 function TaxTab({ q, start, end }: TabProps) {
-  const { fmt } = usePos();
+  const { fmt, s } = usePos();
   const { data, error } = usePoll<Tax>(`/reports/tax?${q}`, 60000, "orders");
   if (!data) return <Loading data={data} error={error} />;
   const days = data.days.filter((d) => d.orders);
@@ -470,6 +476,16 @@ function TaxTab({ q, start, end }: TabProps) {
         <Kpi label="Tax rate" value={`${data.rate.toFixed(3).replace(/\.?0+$/, "")}%`} sub="Set in Settings → Taxes" />
         <Kpi label="Effective rate" value={`${data.effective_rate.toFixed(2)}%`} sub="Collected ÷ taxable (rounding)" />
       </div>
+      {!!data.by_rate?.length && (
+        <Card title="By tax component">
+          <Table head={["Tax", "Rate", "Taxable value", "Tax"]} rows={data.by_rate.map((r) => [r.name, `${r.rate}%`, fmt(r.taxable), fmt(r.tax)])} />
+        </Card>
+      )}
+      {!!data.hsn?.length && s.tenant?.market === "IN" && (
+        <Card title={`HSN summary${data.b2b_invoices ? ` · ${data.b2b_invoices} B2B invoice${data.b2b_invoices === 1 ? "" : "s"}` : ""}`}>
+          <Table head={["HSN / SAC", "GST rate", "Qty", "Taxable value", "Tax"]} rows={data.hsn.map((h) => [h.hsn, `${h.rate}%`, h.qty, fmt(h.taxable), fmt(h.tax)])} />
+        </Card>
+      )}
       <Card title="By day" action={<CsvButton report="tax" start={start} end={end} />}>
         <Table head={["Date", "Checks", "Taxable", "Tax"]} rows={days.map((d) => [shortDate(d.date), d.orders, fmt(d.taxable), fmt(d.tax)])} />
       </Card>

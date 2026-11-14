@@ -58,6 +58,9 @@ class Tenant(Base):
     ot_weekly_hours: Mapped[Decimal] = mapped_column(Numeric(5, 1), default=Decimal("40"))
     auto_print_kot: Mapped[bool] = mapped_column(Boolean, default=False)
     auto_print_receipt: Mapped[bool] = mapped_column(Boolean, default=False)
+    # Tax class for dishes with none of their own (null = the single tax_rate / tax_label above)
+    default_tax_id: Mapped[str | None] = mapped_column(ForeignKey("tax_rates.id", ondelete="SET NULL", use_alter=True), nullable=True)
+    invoice_prefix: Mapped[str] = mapped_column(String(12), default="")  # e.g. "BLR" -> BLR/2026-27/00001
 
 
 class User(Base):
@@ -83,6 +86,7 @@ class MenuCategory(Base):
     sort: Mapped[int] = mapped_column(Integer, default=0)
     # Course phase for the service timeline: drinks | starters | mains | sides | desserts ("" = guess from the name)
     phase: Mapped[str] = mapped_column(String(12), default="")
+    tax_rate_id: Mapped[str | None] = mapped_column(ForeignKey("tax_rates.id", ondelete="SET NULL"), nullable=True)
     # Serving hours, e.g. breakfast: {"days": [0..6] (Mon=0), "from": "07:00", "to": "11:00"}; {} = always
     schedule: Mapped[dict] = mapped_column(JSON, default=dict)
 
@@ -104,6 +108,8 @@ class MenuItem(Base):
     allergens: Mapped[list] = mapped_column(JSON, default=list)  # keys from backoffice.ALLERGENS
     nutrition: Mapped[dict] = mapped_column(JSON, default=dict)  # {"kcal", "protein", "carbs", "fat"} per serving
     channels: Mapped[list] = mapped_column(JSON, default=list)  # menurules.CHANNELS it sells on; [] = all
+    tax_rate_id: Mapped[str | None] = mapped_column(ForeignKey("tax_rates.id", ondelete="SET NULL"), nullable=True)  # null = category's
+    hsn: Mapped[str] = mapped_column(String(12), default="")  # HSN / SAC code for GST invoices
 
 
 class DiningTable(Base):
@@ -146,6 +152,11 @@ class Order(Base):
     status: Mapped[str] = mapped_column(String(12), default="open", index=True)
     customer_name: Mapped[str] = mapped_column(String(120), default="")
     customer_phone: Mapped[str] = mapped_column(String(40), default="")
+    customer_gstin: Mapped[str] = mapped_column(String(15), default="")  # B2B invoice: the buyer's GSTIN / tax ID
+    # Invoice number, given when the check is paid: sequential per financial year
+    invoice_no: Mapped[str] = mapped_column(String(40), default="", index=True)
+    invoice_fy: Mapped[str] = mapped_column(String(9), default="")
+    invoice_seq: Mapped[int | None] = mapped_column(Integer, nullable=True)
     guests: Mapped[int] = mapped_column(Integer, default=0)
     # Check-level discount: kind "" | "percent" | "amount"
     discount_kind: Mapped[str] = mapped_column(String(10), default="")
@@ -167,6 +178,7 @@ class Order(Base):
     items: Mapped[list["OrderItem"]] = relationship(cascade="all, delete-orphan", order_by="OrderItem.created_at")
     payments: Mapped[list["Payment"]] = relationship(cascade="all, delete-orphan", order_by="Payment.created_at")
     credit_notes: Mapped[list["CreditNote"]] = relationship(order_by="CreditNote.created_at", viewonly=True)
+    tenant: Mapped["Tenant"] = relationship(viewonly=True)
     table: Mapped[DiningTable | None] = relationship()
 
 
@@ -206,6 +218,11 @@ class OrderItem(Base):
     source: Mapped[str] = mapped_column(String(10), default="")  # "guest" = ordered by the guest from the table QR
     kot_id: Mapped[str | None] = mapped_column(ForeignKey("kots.id", ondelete="SET NULL"), nullable=True)
     returned_qty: Mapped[int] = mapped_column(Integer, default=0)  # handed back on a credit note
+    # Tax snapshot when ordered (null rate = the restaurant's default single rate, for lines from before tax classes)
+    tax_rate: Mapped[Decimal | None] = mapped_column(Numeric(6, 5), nullable=True)
+    tax_name: Mapped[str] = mapped_column(String(60), default="")
+    tax_parts: Mapped[list] = mapped_column(JSON, default=list)
+    hsn: Mapped[str] = mapped_column(String(12), default="")
     done: Mapped[bool] = mapped_column(Boolean, default=False)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now)
     kot: Mapped[Kot | None] = relationship(back_populates="items")
@@ -661,3 +678,19 @@ class CreditNote(Base):
     restocked: Mapped[bool] = mapped_column(Boolean, default=False)
     user_name: Mapped[str] = mapped_column(String(120), default="")
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now, index=True)
+
+
+# ---------- Taxes ----------
+
+class TaxRate(Base):
+    """A tax class dishes can be put in, e.g. "GST 5%" = CGST 2.5% + SGST 2.5%, "GST 18%", "Exempt".
+
+    components split the rate on the bill; empty = one line with this name. rate is the sum."""
+    __tablename__ = "tax_rates"
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=uid)
+    tenant_id: Mapped[str] = mapped_column(ForeignKey("tenants.id", ondelete="CASCADE"), index=True)
+    name: Mapped[str] = mapped_column(String(60))
+    rate: Mapped[Decimal] = mapped_column(Numeric(6, 5))
+    components: Mapped[list] = mapped_column(JSON, default=list)  # [{"name": "CGST", "rate": 0.025}, ...]
+    sort: Mapped[int] = mapped_column(Integer, default=0)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now)

@@ -11,7 +11,7 @@ import { cn } from "@/lib/utils";
 import { printCreditNote } from "./print";
 import { printOrder } from "./print-host";
 import { Empty, METHOD_LABEL, STATUS_TONE, Seg, orderTitle, payMethods, run, usePoll, usePos } from "./shared";
-import type { Order } from "./types";
+import { taxLines, type Order } from "./types";
 import { ActivityList, type AuditRow } from "./activity";
 
 interface Row {
@@ -122,7 +122,7 @@ export function OrdersScreen() {
               <div className="space-y-1 border-t border-dashed border-border pt-3 text-muted-foreground">
                 <div className="flex justify-between"><span>Subtotal</span><span className="font-mono">{fmt(sel.subtotal)}</span></div>
                 {sel.discount.amount > 0 && <div className="flex justify-between text-saffron-deep"><span>Discount · {sel.discount.reason}</span><span className="font-mono">−{fmt(sel.discount.amount)}</span></div>}
-                <div className="flex justify-between"><span>{s.tenant?.tax_label || "Tax"}</span><span className="font-mono">{fmt(sel.tax)}</span></div>
+                {taxLines(sel, s.tenant?.tax_label || "Tax").map(([l, v]) => <div key={l} className="flex justify-between"><span>{l}</span><span className="font-mono">{fmt(v)}</span></div>)}
                 {sel.tip > 0 && <div className="flex justify-between"><span>Tips</span><span className="font-mono">{fmt(sel.tip)}</span></div>}
                 <div className="flex justify-between pt-1 text-base font-semibold text-foreground"><span>Total</span><span className="font-mono">{fmt(sel.total)}</span></div>
               </div>

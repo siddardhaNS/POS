@@ -12,7 +12,7 @@ from pydantic import BaseModel, Field
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
-from .. import menurules
+from .. import menurules, taxes
 from ..db import get_db
 from ..deps import LIVE_STATUSES, Ctx, has_module, needs, require
 from ..models import DiningTable, Kot, MenuItem, Order, OrderItem, ServiceRequest, Tenant, now
@@ -111,6 +111,7 @@ def guest_order(token: str, body: GuestOrderIn, db: Session = Depends(get_db)):
         raise HTTPException(429, "Your table already has a lot waiting to be confirmed. A member of staff will be with you shortly.")
     added: list[OrderItem] = []
     pricing = menurules.Pricing(db, tenant, "qr")
+    tax = taxes.Resolver(db, tenant)
     for x in body.items:
         m = db.scalar(select(MenuItem).where(MenuItem.id == x.menu_item_id, MenuItem.tenant_id == tenant.id))
         if not m:
@@ -123,6 +124,7 @@ def guest_order(token: str, body: GuestOrderIn, db: Session = Depends(get_db)):
         unit = base + sum((Decimal(str(md["price"])) for md in mods), Decimal(0))
         line = OrderItem(tenant_id=tenant.id, menu_item_id=m.id, name=m.name, unit_price=unit, qty=x.qty, note=x.note.strip(),
                          modifiers=mods, station=m.station, source="guest", price_list=plist)
+        tax.stamp(line, m)
         o.items.append(line)
         added.append(line)
     if body.name.strip() and not o.customer_name:

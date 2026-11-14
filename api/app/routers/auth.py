@@ -27,6 +27,7 @@ def tenant_out(t: Tenant | None) -> dict | None:
         "modules": [m for m in (t.modules or []) if m in MODULES], "qr_auto_send": t.qr_auto_send,
         "trial_ends_at": t.trial_ends_at.isoformat() if t.trial_ends_at else None,
         "brand_id": t.brand_id, "location_name": t.location_name or "",
+        "default_tax_id": t.default_tax_id, "invoice_prefix": t.invoice_prefix or "",
     }
 
 

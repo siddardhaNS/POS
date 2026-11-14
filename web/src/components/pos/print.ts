@@ -2,7 +2,7 @@
 
 import type { Tenant } from "@/lib/api";
 import { METHOD_LABEL, orderTitle } from "./shared";
-import type { CreditNote, KotPrint, Order } from "./types";
+import { taxLines, type CreditNote, type KotPrint, type Order } from "./types";
 
 export const esc = (s: string) => s.replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c]!);
 
@@ -47,18 +47,23 @@ export function printReceipt(o: Order, t: Tenant | null | undefined, fmt: (v: nu
   const lines = o.items.map((l) => `
     <div class="r"><span>${l.qty} × ${esc(l.name)}</span><span>${l.comp_reason ? "COMP" : fmt(l.line_total)}</span></div>
     ${l.modifiers.map((m) => `<div class="m">+ ${esc(m.name)}${m.price ? ` (${fmt(m.price)})` : ""}</div>`).join("")}
-    ${l.note ? `<div class="m">“${esc(l.note)}”</div>` : ""}`).join("");
+    ${l.note ? `<div class="m">“${esc(l.note)}”</div>` : ""}
+    ${t?.market === "IN" && l.hsn ? `<div class="m">HSN ${esc(l.hsn)}${l.tax_rate != null ? ` · GST ${l.tax_rate}%` : ""}</div>` : ""}`).join("");
   const pays = o.payments.map((p) => `
     <div class="r"><span>${p.kind === "refund" ? "Refund · " : ""}${METHOD_LABEL[p.method] ?? p.method}</span><span>${p.kind === "refund" ? "−" : ""}${fmt(p.amount + p.tip)}</span></div>
     ${p.change ? `<div class="r m"><span>Change</span><span>${fmt(p.change)}</span></div>` : ""}`).join("");
+  const gst = t?.market === "IN";
+  const label = kind === "bill" ? "BILL" : o.status === "refunded" ? "REFUND RECEIPT" : gst && t?.tax_id ? "TAX INVOICE" : "RECEIPT";
   const body = `${header(t)}
-    <hr><div class="c b">${kind === "bill" ? "BILL" : o.status === "refunded" ? "REFUND RECEIPT" : "RECEIPT"}</div>
+    <hr><div class="c b">${label}</div>
     <div class="r"><span>${esc(orderTitle(o))}</span><span>#${o.number}</span></div>
     <div>${when(o.closed_at ?? o.opened_at)}${o.guests ? ` · ${o.guests} guests` : ""}</div>
+    ${o.invoice_no && kind !== "bill" ? `<div class="r"><span>Invoice</span><span>${esc(o.invoice_no)}</span></div>` : ""}
+    ${o.customer_gstin ? `<div>${o.customer_name ? `Bill to: ${esc(o.customer_name)}<br>` : ""}GSTIN: ${esc(o.customer_gstin)}</div>` : ""}
     <hr>${lines}<hr>
     <div class="r"><span>Subtotal</span><span>${fmt(o.subtotal)}</span></div>
     ${o.discount.amount ? `<div class="r"><span>Discount${o.discount.reason ? ` (${esc(o.discount.reason)})` : ""}</span><span>−${fmt(o.discount.amount)}</span></div>` : ""}
-    <div class="r"><span>${esc(t?.tax_label || "Tax")}</span><span>${fmt(o.tax)}</span></div>
+    ${taxLines(o, t?.tax_label || "Tax").map(([l, v]) => `<div class="r"><span>${esc(l)}</span><span>${fmt(v)}</span></div>`).join("")}
     ${o.tip ? `<div class="r"><span>Tip</span><span>${fmt(o.tip)}</span></div>` : ""}
     <div class="r b huge"><span>Total</span><span>${fmt(o.due + o.tip)}</span></div>
     ${pays ? `<hr>${pays}` : ""}

@@ -13,7 +13,7 @@ import { cn } from "@/lib/utils";
 import { NativeSelect } from "@/components/auth-shell";
 import { MenuImport } from "./menu-import";
 import { PriceListsDialog } from "./pricelists";
-import type { Category, MenuItem, ModGroup } from "./types";
+import type { Category, MenuItem, ModGroup, TaxRates } from "./types";
 import { Seg, VegDot, run, usePoll, usePos } from "./shared";
 
 /* ---------------- Menu ---------------- */
@@ -26,6 +26,7 @@ export function MenuAdmin() {
   const { s, fmt } = usePos();
   const edit = can(s.user, "menu_edit");
   const { data: menu, reload, setData } = usePoll<Category[]>("/menu/manage", 0, "menu");
+  const { data: taxes } = usePoll<TaxRates>("/tax-rates", 0, "menu");
   const [cat, setCat] = useState<string | null>(null);
   const [sel, setSel] = useState<MenuItem | null>(null);
   const [importing, setImporting] = useState(false);
@@ -50,6 +51,7 @@ export function MenuAdmin() {
     const body = {
       name: sel.name, price: sel.price, is_veg: sel.is_veg, station: sel.station, category_id: sel.category_id, available: sel.available,
       description: sel.description ?? "", tags: sel.tags ?? [], allergens: sel.allergens ?? [], channels: sel.channels ?? [],
+      tax_rate_id: sel.tax_rate_id ?? "", hsn: sel.hsn ?? "",
       nutrition: Object.fromEntries(Object.entries(sel.nutrition ?? {}).filter(([, v]) => v != null && !Number.isNaN(v))),
     };
     const r = sel.id ? await run(api(`/menu/items/${sel.id}`, { method: "PATCH", body }), `${sel.name} published`)
@@ -109,6 +111,20 @@ export function MenuAdmin() {
               {Object.entries(COURSE_LABEL).map(([k, l]) => <option key={k} value={k}>{l}</option>)}
             </select>
             <span className="text-xs text-muted-foreground">Used on the Floor timeline to show which course each table is on and when it will clear.</span>
+          </div>
+        )}
+        {cur && taxes && taxes.rates.length > 0 && (
+          <div className="flex flex-wrap items-center gap-2 text-sm">
+            <span className="text-muted-foreground">Tax for {cur.name}</span>
+            <select value={cur.tax_rate_id ?? ""} disabled={!edit} className="h-9 rounded-lg border border-input bg-card px-2.5 text-sm"
+              onChange={async (e) => {
+                const r = await run(api<Category>(`/menu/categories/${cur.id}`, { method: "PATCH", body: { tax_rate_id: e.target.value } }), "Tax saved");
+                if (r) setData((d) => d && d.map((c) => (c.id === cur.id ? { ...c, tax_rate_id: r.tax_rate_id } : c)));
+              }}>
+              <option value="">Restaurant default ({taxName(taxes, null)})</option>
+              {taxes.rates.map((r) => <option key={r.id} value={r.id}>{r.name}</option>)}
+            </select>
+            <span className="text-xs text-muted-foreground">Dishes in this category use it unless they have their own.</span>
           </div>
         )}
         {cur && <ServingHours key={cur.id} cat={cur} edit={edit} onSaved={(c) => setData((d) => d && d.map((x) => (x.id === c.id ? { ...x, ...c, items: x.items } : x)))} />}
@@ -174,6 +190,17 @@ export function MenuAdmin() {
                   </button>
                 ))}
               </div>
+              {taxes && taxes.rates.length > 0 && (
+                <div className="grid grid-cols-[1fr_120px] gap-3">
+                  <div className="space-y-2"><Label>Tax</Label>
+                    <NativeSelect value={sel.tax_rate_id ?? ""} onChange={(e) => setSel({ ...sel, tax_rate_id: e.target.value || null })}>
+                      <option value="">Same as category ({taxName(taxes, menu?.find((c) => c.id === sel.category_id)?.tax_rate_id)})</option>
+                      {taxes.rates.map((r) => <option key={r.id} value={r.id}>{r.name}</option>)}
+                    </NativeSelect></div>
+                  {s.tenant?.market === "IN" && <div className="space-y-2"><Label>HSN / SAC</Label>
+                    <Input value={sel.hsn ?? ""} maxLength={12} placeholder="996331" onChange={(e) => setSel({ ...sel, hsn: e.target.value.toUpperCase() })} className="h-10 font-mono" /></div>}
+                </div>
+              )}
               <div className="space-y-2">
                 <Label>Sold on</Label>
                 <div className="flex flex-wrap gap-1.5">
@@ -474,4 +501,10 @@ function ModifierEditor({ item, menu, onClose, onSaved }: { item: MenuItem; menu
       </DialogContent>
     </Dialog>
   );
+}
+
+/** Name of a tax class id, or of what it falls back to (null = the restaurant default). */
+function taxName(t: TaxRates, id: string | null | undefined): string {
+  const r = t.rates.find((x) => x.id === (id || t.default_id));
+  return r ? r.name : t.fallback.name;
 }

@@ -13,7 +13,7 @@ from ..db import get_db
 from ..deps import Ctx, require
 from ..deps import PERMISSIONS
 from ..live import audit
-from ..models import AuditLog, DiningTable, FloorSection, MenuCategory, MenuItem, ModifierGroup, ModifierOption, Order, User
+from ..models import AuditLog, DiningTable, FloorSection, MenuCategory, MenuItem, ModifierGroup, ModifierOption, Order, TaxRate, User
 from ..security import hash_secret
 from .pos import money, tenant_tz
 
@@ -38,7 +38,7 @@ def item_out(m: MenuItem, groups: list[ModifierGroup] | None = None, avail: dict
     return {"id": m.id, "category_id": m.category_id, "name": m.name, "price": money(m.price),
             "is_veg": m.is_veg, "station": m.station, "available": m.available,
             "description": m.description or "", "tags": m.tags or [], "allergens": m.allergens or [],
-            "nutrition": m.nutrition or {}, "channels": m.channels or [],
+            "nutrition": m.nutrition or {}, "channels": m.channels or [], "tax_rate_id": m.tax_rate_id, "hsn": m.hsn or "",
             "is_combo": any(o.menu_item_id for g in (groups or []) for o in g.options),
             "modifiers": [group_out(g, avail) for g in (groups or [])]}
 
@@ -77,7 +77,7 @@ def _menu(ctx: Ctx, db: Session, channel: str = ""):
 def category_out(c: MenuCategory, tz) -> dict:
     return {"id": c.id, "name": c.name, "phase": phases.effective(c.phase, c.name), "phase_set": c.phase in phases.PHASES,
             "schedule": c.schedule or {}, "schedule_label": menurules.schedule_label(c.schedule),
-            "open_now": menurules.open_now(c.schedule, tz)}
+            "open_now": menurules.open_now(c.schedule, tz), "tax_rate_id": c.tax_rate_id}
 
 
 class CategoryIn(BaseModel):
@@ -97,6 +97,7 @@ class CategoryPatch(BaseModel):
     name: str | None = Field(default=None, min_length=1, max_length=80)
     phase: str | None = Field(default=None, pattern=r"^(|drinks|starters|mains|sides|desserts)$")  # "" = guess
     schedule: dict | None = None  # {"days": [...], "from": "HH:MM", "to": "HH:MM"}; {} = always
+    tax_rate_id: str | None = Field(default=None, max_length=36)  # "" = restaurant default
 
 
 @router.patch("/menu/categories/{cid}")
@@ -110,6 +111,8 @@ def edit_category(cid: str, body: CategoryPatch, ctx: Ctx = Depends(require("men
         c.phase = body.phase
     if body.schedule is not None:
         c.schedule = menurules.clean_schedule(body.schedule)
+    if body.tax_rate_id is not None:
+        c.tax_rate_id = own_tax(db, ctx, body.tax_rate_id)
     db.commit()
     return category_out(c, tenant_tz(ctx.tenant))
 
@@ -126,6 +129,8 @@ class ItemIn(BaseModel):
     allergens: list[str] = Field(default_factory=list, max_length=14)
     nutrition: dict[str, float] = Field(default_factory=dict)
     channels: list[str] = Field(default_factory=list, max_length=5)
+    tax_rate_id: str | None = Field(default=None, max_length=36)
+    hsn: str = Field(default="", max_length=12)
 
 
 class ItemPatch(BaseModel):
@@ -140,6 +145,8 @@ class ItemPatch(BaseModel):
     allergens: list[str] | None = Field(default=None, max_length=14)
     nutrition: dict[str, float] | None = None
     channels: list[str] | None = Field(default=None, max_length=5)
+    tax_rate_id: str | None = Field(default=None, max_length=36)  # "" = use the category's
+    hsn: str | None = Field(default=None, max_length=12)
 
 
 def clean_details(data: dict) -> dict:
@@ -178,6 +185,15 @@ def clean_details(data: dict) -> dict:
     return {k: v for k, v in data.items() if v is not None or k not in ("description", "tags", "allergens", "nutrition", "channels")}
 
 
+def own_tax(db: Session, ctx: Ctx, rid: str | None) -> str | None:
+    """A tax class id of this restaurant, or None for "" (inherit)."""
+    if not rid:
+        return None
+    if not db.scalar(select(TaxRate.id).where(TaxRate.id == rid, TaxRate.tenant_id == ctx.tenant_id)):
+        raise HTTPException(404, "Tax class not found")
+    return rid
+
+
 def own_category(db: Session, ctx: Ctx, cid: str) -> None:
     if not db.scalar(select(MenuCategory.id).where(MenuCategory.id == cid, MenuCategory.tenant_id == ctx.tenant_id)):
         raise HTTPException(404, "Category not found")
@@ -186,7 +202,10 @@ def own_category(db: Session, ctx: Ctx, cid: str) -> None:
 @router.post("/menu/items", status_code=201)
 def add_item(body: ItemIn, ctx: Ctx = Depends(require("menu_edit")), db: Session = Depends(get_db)):
     own_category(db, ctx, body.category_id)
-    m = MenuItem(tenant_id=ctx.tenant_id, **clean_details(body.model_dump(exclude={"price"})), price=Decimal(str(body.price)))
+    data = clean_details(body.model_dump(exclude={"price"}))
+    data["tax_rate_id"] = own_tax(db, ctx, data.get("tax_rate_id"))
+    data["hsn"] = (data.get("hsn") or "").strip().upper()
+    m = MenuItem(tenant_id=ctx.tenant_id, **data, price=Decimal(str(body.price)))
     db.add(m)
     db.commit()
     return item_out(m)
@@ -205,6 +224,10 @@ def edit_item(iid: str, body: ItemPatch, ctx: Ctx = Depends(require("menu_edit")
     data = clean_details(body.model_dump(exclude_unset=True))
     if "category_id" in data:
         own_category(db, ctx, data["category_id"])
+    if "tax_rate_id" in data:
+        data["tax_rate_id"] = own_tax(db, ctx, data["tax_rate_id"])
+    if data.get("hsn") is not None:
+        data["hsn"] = data["hsn"].strip().upper()
     if "price" in data:
         data["price"] = Decimal(str(data["price"]))
         if data["price"] != m.price:
@@ -414,6 +437,7 @@ class SettingsIn(BaseModel):
     receipt_footer: str | None = Field(default=None, max_length=400)
     auto_print_kot: bool | None = None
     auto_print_receipt: bool | None = None
+    invoice_prefix: str | None = Field(default=None, max_length=12, pattern=r"^[A-Za-z0-9-]*$")
 
 
 @router.get("/settings")
@@ -435,6 +459,16 @@ def update_settings(body: SettingsIn, ctx: Ctx = Depends(require("settings")), d
         audit(db, ctx, "tax_change", detail=f"{float(t.tax_rate) * 100:g}% → {data['tax_rate'] * 100:g}%")
     for k, v in data.items():
         setattr(t, k, Decimal(str(v)) if k == "tax_rate" else v)
+    if "tax_rate" in data and t.default_tax_id:
+        # The single rate is the default tax class: change the class too, scaling its parts (CGST / SGST).
+        r = db.get(TaxRate, t.default_tax_id)
+        if r is not None and r.rate != t.tax_rate:
+            old = Decimal(r.rate)
+            r.components = [{**p, "rate": float(Decimal(str(p["rate"])) * t.tax_rate / old) if old else 0}
+                            for p in (r.components or [])]
+            r.rate = t.tax_rate
+        if r is not None and "tax_label" not in data:
+            t.tax_label = r.name
     db.commit()
     from .auth import tenant_out
     return tenant_out(t)

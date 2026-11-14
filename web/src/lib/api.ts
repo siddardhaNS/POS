@@ -23,6 +23,8 @@ export interface Tenant {
   receipt_footer?: string;
   auto_print_kot?: boolean;
   auto_print_receipt?: boolean;
+  default_tax_id?: string | null;
+  invoice_prefix?: string;
   /** Optional modules turned on for this restaurant by Tiffin (online, reports_plus, printing, menu_scan). */
   modules?: string[];
   /** Multi-location: the business this outlet belongs to, and the outlet name (e.g. "Downtown"). */

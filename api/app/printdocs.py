@@ -93,11 +93,22 @@ def kot_doc(t: Tenant, o: Order, k: Kot, items: list[OrderItem], printer: Printe
 def check_doc(t: Tenant, order: Order, kind: str = "receipt") -> dict:
     """Guest check: "bill" before payment, "receipt" after. Mirrors printReceipt in web/src/components/pos/print.ts."""
     o, fmt = order_out(order), money_fmt(t)
-    label = "BILL" if kind == "bill" else "REFUND RECEIPT" if o["status"] == "refunded" else "RECEIPT"
+    gst = t.market == "IN"
+    label = ("BILL" if kind == "bill" else "REFUND RECEIPT" if o["status"] == "refunded"
+             else "TAX INVOICE" if gst and t.tax_id else "RECEIPT")
     lines = header(t) + [HR, T(label, "c", True), LR(order_title(o), f"#{o['number']}"),
-                         T(when(t, o["closed_at"] or o["opened_at"]) + (f" · {o['guests']} guests" if o["guests"] else "")), HR]
+                         T(when(t, o["closed_at"] or o["opened_at"]) + (f" · {o['guests']} guests" if o["guests"] else ""))]
+    if o["invoice_no"] and kind != "bill":
+        lines.append(LR("Invoice", o["invoice_no"]))
+    if o["customer_name"] and o["customer_gstin"]:
+        lines += [T(f"Bill to: {o['customer_name']}"), T(f"GSTIN: {o['customer_gstin']}")]
+    elif o["customer_gstin"]:
+        lines.append(T(f"Customer GSTIN: {o['customer_gstin']}"))
+    lines.append(HR)
     for li in o["items"]:
         lines.append(LR(f"{li['qty']} x {li['name']}", "COMP" if li["comp_reason"] else fmt(li["line_total"])))
+        if gst and li.get("hsn"):
+            lines.append(T(f"  HSN {li['hsn']}" + (f" · GST {li['tax_rate']:g}%" if li.get("tax_rate") is not None else "")))
         for m in li["modifiers"]:
             lines.append(T(f"  + {m.get('name', '')}" + (f" ({fmt(m['price'])})" if m.get("price") else "")))
         if li["note"]:
@@ -106,7 +117,12 @@ def check_doc(t: Tenant, order: Order, kind: str = "receipt") -> dict:
     d = o["discount"]
     if d["amount"]:
         lines.append(LR("Discount" + (f" ({d['reason']})" if d["reason"] else ""), "−" + fmt(d["amount"])))
-    lines.append(LR(t.tax_label or "Tax", fmt(o["tax"])))
+    if o["tax_breakdown"]:
+        for b in o["tax_breakdown"]:
+            if b["tax"] or b["rate"]:
+                lines.append(LR(f"{b['name']} {b['rate']:g}%" if b["name"] in ("CGST", "SGST", "IGST", "UTGST") else b["name"], fmt(b["tax"])))
+    else:
+        lines.append(LR(t.tax_label or "Tax", fmt(o["tax"])))
     if o["tip"]:
         lines.append(LR("Tip", fmt(o["tip"])))
     lines.append(LR("Total", fmt(o["due"] + o["tip"]), True, 2))
