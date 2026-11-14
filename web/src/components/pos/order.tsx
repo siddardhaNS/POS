@@ -48,8 +48,9 @@ const big = "h-12 w-full rounded-xl font-semibold transition disabled:opacity-40
 
 export function OrderScreen() {
   const { s, fmt, go, orderId, payNow } = usePos();
-  const { data: menu } = usePoll<Category[]>("/menu", 0, "menu");
   const [order, setOrder] = useState<Order | null>(null);
+  // Prices follow the check's channel (price lists), so the menu loads once the check is known.
+  const { data: menu } = usePoll<Category[]>(order ? `/menu?channel=${menuChannel(order.channel)}` : null, 0, "menu");
   const [cat, setCat] = useState<string | null>(null);
   const [q, setQ] = useState("");
   const [paying, setPaying] = useState(payNow);
@@ -169,6 +170,7 @@ export function OrderScreen() {
                 <div className="mt-auto flex items-end justify-between pt-3">
                   <span className="font-mono text-sm text-muted-foreground">
                     {!m.available ? "86'd" : off ? "Not now" : fmt(m.price)}
+                    {m.available && !off && m.base_price != null && m.base_price !== m.price && <span className="ml-1 text-[11px] line-through opacity-60">{fmt(m.base_price)}</span>}
                     {m.modifiers.length > 0 && m.available && <span className="ml-1.5 font-sans text-[11px] text-saffron-deep">+ options</span>}
                   </span>
                   {n > 0 && <span className="grid size-7 place-items-center rounded-full bg-foreground font-mono text-xs font-semibold text-background">{n}</span>}
@@ -261,6 +263,7 @@ export function OrderScreen() {
                   <div className="mt-0.5 flex flex-wrap gap-1.5 text-[11px]">
                     <span className={l.sent ? "text-muted-foreground" : "font-medium text-sky"}>{l.sent ? "In kitchen" : "Not sent"}</span>
                     {l.comp_reason && <span className="rounded bg-saffron/20 px-1.5 font-medium text-saffron-deep">Comp · {l.comp_reason}</span>}
+                    {l.price_list && <span className="rounded bg-muted px-1.5 font-medium text-muted-foreground">{l.price_list}</span>}
                     {l.paid && <span className="rounded bg-leaf/15 px-1.5 font-medium text-[oklch(0.45_0.12_150)]">Paid</span>}
                   </div>
                 </div>

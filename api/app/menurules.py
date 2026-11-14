@@ -97,3 +97,54 @@ def check_sellable(item_name: str, item_channels: list | None, category_name: st
         raise HTTPException(409, f"{item_name} isn't offered on {CHANNEL_LABEL.get(channel, channel)}")
     if not open_now(schedule, tz):
         raise HTTPException(409, f"{category_name} is served {schedule_label(schedule)}")
+
+
+# ---------- Price lists ----------
+
+def list_applies(pl, channel: str, tz: ZoneInfo, at: datetime | None = None) -> bool:
+    if not pl.active:
+        return False
+    if pl.channels and channel not in pl.channels:
+        return False
+    today = (at or datetime.now(tz)).astimezone(tz).date()
+    if pl.starts_on and today < pl.starts_on:
+        return False
+    if pl.ends_on and today > pl.ends_on:
+        return False
+    return open_now(pl.schedule, tz, at)
+
+
+class Pricing:
+    """Prices in force for one channel right now. Load once per request, then price() each item."""
+
+    def __init__(self, db, tenant, channel: str):
+        from decimal import Decimal
+        from sqlalchemy import select
+        from sqlalchemy.orm import selectinload
+        from .models import PriceList
+
+        try:
+            tz = ZoneInfo(tenant.timezone or "UTC")
+        except Exception:
+            tz = ZoneInfo("UTC")
+        lists = db.scalars(select(PriceList).where(PriceList.tenant_id == tenant.id, PriceList.active.is_(True))
+                           .options(selectinload(PriceList.prices)).order_by(PriceList.sort, PriceList.created_at)).all()
+        self.list = next((pl for pl in lists if list_applies(pl, channel, tz)), None)
+        self.overrides = {p.menu_item_id: p.price for p in self.list.prices} if self.list else {}
+        self.pct = Decimal(self.list.adjust_pct or 0) if self.list else Decimal(0)
+
+    @property
+    def name(self) -> str:
+        return self.list.name if self.list else ""
+
+    def price(self, item):
+        """(price, list name or "") for a menu item."""
+        from decimal import ROUND_HALF_UP, Decimal
+        if not self.list:
+            return item.price, ""
+        if item.id in self.overrides:
+            return self.overrides[item.id], self.list.name
+        if self.pct:
+            p = (Decimal(item.price) * (100 + self.pct) / 100).quantize(Decimal("0.01"), ROUND_HALF_UP)
+            return max(p, Decimal(0)), self.list.name
+        return item.price, ""

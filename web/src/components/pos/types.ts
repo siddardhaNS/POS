@@ -8,6 +8,8 @@ export interface MenuItem {
   description?: string; tags?: string[]; allergens?: string[]; nutrition?: Nutrition;
   /** Sales channels it sells on; empty = all. */
   channels?: MenuChannel[];
+  /** Set when the menu is fetched for a channel: the base price before a price list changed it. */
+  base_price?: number; price_list?: string;
 }
 export type MenuChannel = "dine_in" | "takeaway" | "delivery" | "online" | "qr";
 export interface Schedule { days?: number[]; from?: string; to?: string }
@@ -20,7 +22,7 @@ export interface Modifier { group: string; name: string; price: number }
 export interface Line {
   id: string; menu_item_id: string | null; name: string; unit_price: number; qty: number; note: string;
   modifiers: Modifier[]; comp_reason: string; line_total: number; sent: boolean; done: boolean; paid: boolean;
-  course: number; seat: number; station: string; source?: string;
+  course: number; seat: number; station: string; source?: string; price_list?: string;
 }
 export interface PaymentRow {
   id: string; kind: "payment" | "refund"; method: string; amount: number; tip: number; tendered: number; change: number;

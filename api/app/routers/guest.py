@@ -12,6 +12,7 @@ from pydantic import BaseModel, Field
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
+from .. import menurules
 from ..db import get_db
 from ..deps import LIVE_STATUSES, Ctx, has_module, needs, require
 from ..models import DiningTable, Kot, MenuItem, Order, OrderItem, ServiceRequest, Tenant, now
@@ -65,7 +66,7 @@ def guest_view(token: str, db: Session = Depends(get_db)):
     # Only what the table can order right now: in stock, offered on the QR menu, and inside serving hours.
     menu = [{"id": c["id"], "name": c["name"],
              "items": [i for i in c["items"] if i["available"] and (not i["channels"] or "qr" in i["channels"])]}
-            for c in _menu(as_ctx(tenant), db) if c["open_now"]]
+            for c in _menu(as_ctx(tenant), db, "qr") if c["open_now"]]
     o = open_check(db, t)
     o = load_order(db, as_ctx(tenant), o.id) if o else None
     asks = db.scalars(select(ServiceRequest.kind).where(ServiceRequest.table_id == t.id, ServiceRequest.status == "open")).all()
@@ -109,6 +110,7 @@ def guest_order(token: str, body: GuestOrderIn, db: Session = Depends(get_db)):
     if pending + sum(x.qty for x in body.items) > MAX_PENDING_LINES:
         raise HTTPException(429, "Your table already has a lot waiting to be confirmed. A member of staff will be with you shortly.")
     added: list[OrderItem] = []
+    pricing = menurules.Pricing(db, tenant, "qr")
     for x in body.items:
         m = db.scalar(select(MenuItem).where(MenuItem.id == x.menu_item_id, MenuItem.tenant_id == tenant.id))
         if not m:
@@ -117,9 +119,10 @@ def guest_order(token: str, body: GuestOrderIn, db: Session = Depends(get_db)):
             raise HTTPException(409, f"Sorry, {m.name} just sold out.")
         check_sellable(db, ctx, m, "qr")
         mods = resolve_modifiers(db, ctx, m, x.modifier_ids)
-        unit = m.price + sum((Decimal(str(md["price"])) for md in mods), Decimal(0))
+        base, plist = pricing.price(m)
+        unit = base + sum((Decimal(str(md["price"])) for md in mods), Decimal(0))
         line = OrderItem(tenant_id=tenant.id, menu_item_id=m.id, name=m.name, unit_price=unit, qty=x.qty, note=x.note.strip(),
-                         modifiers=mods, station=m.station, source="guest")
+                         modifiers=mods, station=m.station, source="guest", price_list=plist)
         o.items.append(line)
         added.append(line)
     if body.name.strip() and not o.customer_name:

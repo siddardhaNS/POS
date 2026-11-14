@@ -41,8 +41,9 @@ def item_out(m: MenuItem, groups: list[ModifierGroup] | None = None) -> dict:
 
 
 @router.get("/menu")
-def menu(ctx: Ctx = Depends(require("order")), db: Session = Depends(get_db)):
-    return _menu(ctx, db)
+def menu(channel: str = "", ctx: Ctx = Depends(require("order")), db: Session = Depends(get_db)):
+    """The menu for ordering. With a channel, prices are the ones in force there right now (price lists)."""
+    return _menu(ctx, db, channel if channel in menurules.CHANNELS else "")
 
 
 @router.get("/menu/manage")
@@ -50,15 +51,23 @@ def menu_manage(ctx: Ctx = Depends(require("menu")), db: Session = Depends(get_d
     return _menu(ctx, db)
 
 
-def _menu(ctx: Ctx, db: Session):
+def _menu(ctx: Ctx, db: Session, channel: str = ""):
     cats = db.scalars(select(MenuCategory).where(MenuCategory.tenant_id == ctx.tenant_id).order_by(MenuCategory.sort)).all()
     items = db.scalars(select(MenuItem).where(MenuItem.tenant_id == ctx.tenant_id).order_by(MenuItem.sort, MenuItem.name)).all()
     groups: dict[str, list[ModifierGroup]] = {}
     for g in db.scalars(select(ModifierGroup).where(ModifierGroup.tenant_id == ctx.tenant_id)
                         .options(selectinload(ModifierGroup.options)).order_by(ModifierGroup.sort)):
         groups.setdefault(g.menu_item_id, []).append(g)
+    pricing = menurules.Pricing(db, ctx.tenant, channel) if channel else None
+
+    def priced(m: MenuItem) -> dict:
+        out = item_out(m, groups.get(m.id))
+        if pricing:
+            p, name = pricing.price(m)
+            out.update(base_price=money(m.price), price=money(p), price_list=name)
+        return out
     tz = tenant_tz(ctx.tenant)
-    return [{**category_out(c, tz), "items": [item_out(m, groups.get(m.id)) for m in items if m.category_id == c.id]} for c in cats]
+    return [{**category_out(c, tz), "items": [priced(m) for m in items if m.category_id == c.id]} for c in cats]
 
 
 def category_out(c: MenuCategory, tz) -> dict:

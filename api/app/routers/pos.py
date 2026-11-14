@@ -84,7 +84,7 @@ def order_out(o: Order) -> dict:
         "opened_at": o.opened_at.isoformat(), "closed_at": o.closed_at.isoformat() if o.closed_at else None,
         "items": [{"id": i.id, "menu_item_id": i.menu_item_id, "name": i.name, "unit_price": money(i.unit_price),
                    "qty": i.qty, "note": i.note, "modifiers": i.modifiers or [], "comp_reason": i.comp_reason,
-                   "course": i.course, "seat": i.seat, "station": i.station, "source": i.source,
+                   "course": i.course, "seat": i.seat, "station": i.station, "source": i.source, "price_list": i.price_list,
                    "line_total": money(line_total(i)), "sent": i.kot_id is not None, "done": i.done,
                    "paid": i.id in paid_lines} for i in o.items],
         "payments": [payment_out(p) for p in o.payments],
@@ -364,18 +364,21 @@ def add_item(oid: str, body: AddItemIn, ctx: Ctx = Depends(require("order")), db
     m = db.scalar(select(MenuItem).where(MenuItem.id == body.menu_item_id, MenuItem.tenant_id == ctx.tenant_id))
     if not m:
         raise HTTPException(404, "Menu item not found")
-    check_sellable(db, ctx, m, menurules.channel_of(o.channel))
+    channel = menurules.channel_of(o.channel)
+    check_sellable(db, ctx, m, channel)
     mods = resolve_modifiers(db, ctx, m, body.modifier_ids)
-    unit = m.price + sum((Decimal(str(x["price"])) for x in mods), Decimal(0))
+    base, plist = menurules.Pricing(db, ctx.tenant, channel).price(m)
+    unit = base + sum((Decimal(str(x["price"])) for x in mods), Decimal(0))
     note = body.note.strip()
     line = next((i for i in o.items if i.menu_item_id == m.id and i.kot_id is None and not i.comp_reason
-                 and i.note == note and (i.modifiers or []) == mods and i.course == body.course and i.seat == body.seat), None)
+                 and i.note == note and (i.modifiers or []) == mods and i.course == body.course and i.seat == body.seat
+                 and i.unit_price == unit), None)
     if line:
         line.qty += body.qty
     else:
         o.items.append(OrderItem(tenant_id=ctx.tenant_id, menu_item_id=m.id, name=m.name, unit_price=unit,
                                  qty=body.qty, note=note, modifiers=mods, course=body.course, seat=body.seat,
-                                 station=m.station))
+                                 station=m.station, price_list=plist))
     return save(db, ctx, o)
 
 
@@ -792,11 +795,13 @@ def inbound(body: OnlineIn, ctx: Ctx = Depends(require("online")), db: Session =
     o = Order(tenant_id=ctx.tenant_id, number=next_number(db, Order, ctx.tenant_id), channel=body.channel,
               status="new", customer_name=body.customer_name)
     db.add(o)
+    pricing = menurules.Pricing(db, ctx.tenant, "online")
     for it in body.items:
         m = db.scalar(select(MenuItem).where(MenuItem.id == it.menu_item_id, MenuItem.tenant_id == ctx.tenant_id))
         if m:
-            o.items.append(OrderItem(tenant_id=ctx.tenant_id, menu_item_id=m.id, name=m.name, unit_price=m.price,
-                                     qty=it.qty, modifiers=[]))
+            price, plist = pricing.price(m)
+            o.items.append(OrderItem(tenant_id=ctx.tenant_id, menu_item_id=m.id, name=m.name, unit_price=price,
+                                     qty=it.qty, modifiers=[], station=m.station, price_list=plist))
     return save(db, ctx, o)
 
 

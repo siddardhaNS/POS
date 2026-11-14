@@ -201,6 +201,7 @@ class OrderItem(Base):
     course: Mapped[int] = mapped_column(Integer, default=1)
     seat: Mapped[int] = mapped_column(Integer, default=0)  # 0 = shared / table
     station: Mapped[str] = mapped_column(String(40), default="")  # copied from the menu item when ordered
+    price_list: Mapped[str] = mapped_column(String(80), default="")  # price list that set unit_price ("" = base price)
     source: Mapped[str] = mapped_column(String(10), default="")  # "guest" = ordered by the guest from the table QR
     kot_id: Mapped[str | None] = mapped_column(ForeignKey("kots.id", ondelete="SET NULL"), nullable=True)
     done: Mapped[bool] = mapped_column(Boolean, default=False)
@@ -602,3 +603,35 @@ class Reservation(Base):
     created_by: Mapped[str] = mapped_column(String(120), default="")
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now)
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now)
+
+
+# ---------- Price lists ----------
+
+class PriceList(Base):
+    """Alternative prices for some channels or times: delivery prices, happy hour, a festival markdown.
+
+    While it applies, an item's price is its override here, else the base price adjusted by adjust_pct
+    (e.g. -10 = 10% off, 15 = 15% more). The first matching active list by sort wins."""
+    __tablename__ = "price_lists"
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=uid)
+    tenant_id: Mapped[str] = mapped_column(ForeignKey("tenants.id", ondelete="CASCADE"), index=True)
+    name: Mapped[str] = mapped_column(String(80))
+    active: Mapped[bool] = mapped_column(Boolean, default=True)
+    channels: Mapped[list] = mapped_column(JSON, default=list)  # menurules.CHANNELS; [] = all
+    schedule: Mapped[dict] = mapped_column(JSON, default=dict)  # same shape as MenuCategory.schedule
+    starts_on: Mapped[date | None] = mapped_column(Date, nullable=True)
+    ends_on: Mapped[date | None] = mapped_column(Date, nullable=True)
+    adjust_pct: Mapped[Decimal] = mapped_column(Numeric(6, 2), default=Decimal("0"))
+    sort: Mapped[int] = mapped_column(Integer, default=0)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now)
+    prices: Mapped[list["PriceListItem"]] = relationship(cascade="all, delete-orphan")
+
+
+class PriceListItem(Base):
+    __tablename__ = "price_list_items"
+    __table_args__ = (UniqueConstraint("price_list_id", "menu_item_id"),)
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=uid)
+    tenant_id: Mapped[str] = mapped_column(ForeignKey("tenants.id", ondelete="CASCADE"), index=True)
+    price_list_id: Mapped[str] = mapped_column(ForeignKey("price_lists.id", ondelete="CASCADE"), index=True)
+    menu_item_id: Mapped[str] = mapped_column(ForeignKey("menu_items.id", ondelete="CASCADE"), index=True)
+    price: Mapped[Decimal] = mapped_column(Numeric(10, 2))

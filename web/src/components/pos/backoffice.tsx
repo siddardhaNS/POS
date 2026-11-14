@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import { toast } from "sonner";
-import { ListPlus, Plus, ScanText, Trash2, X } from "lucide-react";
+import { ListPlus, Plus, ScanText, Tags, Trash2, X } from "lucide-react";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -12,6 +12,7 @@ import { api, can, hasModule } from "@/lib/api";
 import { cn } from "@/lib/utils";
 import { NativeSelect } from "@/components/auth-shell";
 import { MenuImport } from "./menu-import";
+import { PriceListsDialog } from "./pricelists";
 import type { Category, MenuItem, ModGroup } from "./types";
 import { Seg, VegDot, run, usePoll, usePos } from "./shared";
 
@@ -28,6 +29,7 @@ export function MenuAdmin() {
   const [cat, setCat] = useState<string | null>(null);
   const [sel, setSel] = useState<MenuItem | null>(null);
   const [importing, setImporting] = useState(false);
+  const [pricing, setPricing] = useState(false);
   const [options, setOptions] = useState<MenuItem | null>(null);
   const active = cat ?? menu?.[0]?.id ?? null;
   const cur = menu?.find((c) => c.id === active);
@@ -76,9 +78,13 @@ export function MenuAdmin() {
             </button>
           ))}
           {edit && <button onClick={addCategory} className="rounded-xl px-3 py-2 text-sm text-muted-foreground hover:text-foreground">+ Category</button>}
+          <button onClick={() => setPricing(true)}
+            className="ml-auto flex items-center gap-1.5 rounded-xl bg-card px-3.5 py-2 text-sm font-medium ring-1 ring-border">
+            <Tags className="size-4" />Price lists
+          </button>
           {edit && (
             <button onClick={() => setImporting(true)}
-              className="ml-auto flex items-center gap-1.5 rounded-xl bg-card px-3.5 py-2 text-sm font-medium ring-1 ring-border">
+              className="flex items-center gap-1.5 rounded-xl bg-card px-3.5 py-2 text-sm font-medium ring-1 ring-border">
               <ScanText className="size-4" />Import
             </button>
           )}
@@ -129,6 +135,7 @@ export function MenuAdmin() {
       </div>
 
       <MenuImport open={importing} onOpenChange={setImporting} onDone={reload} />
+      {pricing && menu && <PriceListsDialog menu={menu} edit={edit} onClose={() => { setPricing(false); reload(); }} />}
       {options && <ModifierEditor item={options} onClose={() => setOptions(null)} onSaved={(m) => { setOptions(null); setSel(m); reload(); }} />}
       <aside className={cn("border-t border-border bg-card p-6 lg:border-l lg:border-t-0", !sel && "hidden lg:block")}>
         {!sel ? (
