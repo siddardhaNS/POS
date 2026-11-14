@@ -12,7 +12,7 @@ from sqlalchemy import event, text
 from .db import SessionLocal
 from .models import (AuditLog, CashMovement, CashSession, Customer, DiningTable, FloorSection, LoyaltyEntry, Kot, MenuCategory, MenuItem, ModifierGroup,
                      ModifierOption, Order, OrderItem, Payment, PrepLine, PriceList, PriceListItem, Promotion, Printer, PrintJob, PurchaseOrder, RecipeLine, StockCount,
-                     Reservation, ServiceRequest, StockItem, StockMovement, Supplier, TimeBreak, TimeEntry)
+                     Reservation, ServiceRequest, StockItem, StockMovement, Supplier, TimeBreak, TimeEntry, VendorBill, VendorCredit, VendorPayment)
 
 TOPICS: dict[type, tuple[str, ...]] = {
     Order: ("floor", "orders", "online", "kds"),
@@ -43,6 +43,9 @@ TOPICS: dict[type, tuple[str, ...]] = {
     PrepLine: ("inventory",),
     PurchaseOrder: ("inventory",),
     Supplier: ("inventory",),
+    VendorBill: ("inventory",),
+    VendorPayment: ("inventory",),
+    VendorCredit: ("inventory",),
     StockCount: ("inventory",),
     TimeEntry: ("timeclock",),
     TimeBreak: ("timeclock",),

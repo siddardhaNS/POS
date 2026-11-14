@@ -275,7 +275,8 @@ def save_recipe(mid: str, body: RecipeIn, ctx: Ctx = Depends(MANAGE), db: Sessio
 # ---------- Suppliers ----------
 
 def supplier_out(s: Supplier) -> dict:
-    return {"id": s.id, "name": s.name, "phone": s.phone, "email": s.email, "notes": s.notes, "active": s.active}
+    return {"id": s.id, "name": s.name, "phone": s.phone, "email": s.email, "notes": s.notes, "active": s.active,
+            "payment_terms_days": s.payment_terms_days, "gstin": s.gstin}
 
 
 class SupplierIn(BaseModel):
@@ -284,6 +285,8 @@ class SupplierIn(BaseModel):
     email: str = Field(default="", max_length=200)
     notes: str = Field(default="", max_length=2000)
     active: bool = True
+    payment_terms_days: int = Field(default=15, ge=0, le=365)
+    gstin: str = Field(default="", max_length=15)
 
 
 @router.get("/suppliers")

@@ -399,6 +399,8 @@ class Supplier(Base):
     notes: Mapped[str] = mapped_column(Text, default="")
     active: Mapped[bool] = mapped_column(Boolean, default=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now)
+    payment_terms_days: Mapped[int] = mapped_column(Integer, default=15)  # bill due this many days after its date
+    gstin: Mapped[str] = mapped_column(String(15), default="")
 
 
 class StockItem(Base):
@@ -797,3 +799,50 @@ class LoyaltyEntry(Base):
     note: Mapped[str] = mapped_column(String(200), default="")
     user_name: Mapped[str] = mapped_column(String(120), default="")
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now, index=True)
+
+
+# ---------- Vendor bills & payables ----------
+
+class VendorBill(Base):
+    """A supplier's invoice: what the restaurant owes, by when. Usually raised from a received purchase order."""
+    __tablename__ = "vendor_bills"
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=uid)
+    tenant_id: Mapped[str] = mapped_column(ForeignKey("tenants.id", ondelete="CASCADE"), index=True)
+    supplier_id: Mapped[str] = mapped_column(ForeignKey("suppliers.id", ondelete="CASCADE"), index=True)
+    po_id: Mapped[str | None] = mapped_column(ForeignKey("purchase_orders.id", ondelete="SET NULL"), nullable=True)
+    bill_no: Mapped[str] = mapped_column(String(60), default="")
+    bill_date: Mapped[date] = mapped_column(Date)
+    due_date: Mapped[date] = mapped_column(Date)
+    amount: Mapped[Decimal] = mapped_column(Numeric(12, 2))  # total including tax
+    tax: Mapped[Decimal] = mapped_column(Numeric(12, 2), default=Decimal("0"))  # input tax on the bill
+    note: Mapped[str] = mapped_column(String(300), default="")
+    created_by: Mapped[str] = mapped_column(String(120), default="")
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now)
+    payments: Mapped[list["VendorPayment"]] = relationship(cascade="all, delete-orphan", order_by="VendorPayment.paid_on")
+
+
+class VendorPayment(Base):
+    """Money paid against a bill. method "credit" uses up the supplier's credit balance (returns, rebates)."""
+    __tablename__ = "vendor_payments"
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=uid)
+    tenant_id: Mapped[str] = mapped_column(ForeignKey("tenants.id", ondelete="CASCADE"), index=True)
+    bill_id: Mapped[str] = mapped_column(ForeignKey("vendor_bills.id", ondelete="CASCADE"), index=True)
+    amount: Mapped[Decimal] = mapped_column(Numeric(12, 2))
+    method: Mapped[str] = mapped_column(String(12), default="bank")  # bank | cash | upi | cheque | card | credit
+    reference: Mapped[str] = mapped_column(String(80), default="")
+    paid_on: Mapped[date] = mapped_column(Date)
+    user_name: Mapped[str] = mapped_column(String(120), default="")
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now)
+
+
+class VendorCredit(Base):
+    """Credit a supplier owes back (goods returned, short supply, rebate), used up by paying bills with it."""
+    __tablename__ = "vendor_credits"
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=uid)
+    tenant_id: Mapped[str] = mapped_column(ForeignKey("tenants.id", ondelete="CASCADE"), index=True)
+    supplier_id: Mapped[str] = mapped_column(ForeignKey("suppliers.id", ondelete="CASCADE"), index=True)
+    amount: Mapped[Decimal] = mapped_column(Numeric(12, 2))
+    reason: Mapped[str] = mapped_column(String(200), default="")
+    on_date: Mapped[date] = mapped_column(Date)
+    user_name: Mapped[str] = mapped_column(String(120), default="")
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now)

@@ -23,7 +23,7 @@ interface Recipe {
   menu_item_id: string; name: string; category: string; price: number; cost: number; food_cost_pct: number;
   lines: RLine[]; option_lines: RLine[]; modifiers: { group: string; options: string[] }[];
 }
-interface Supplier { id: string; name: string; phone: string; email: string; notes: string; active: boolean }
+interface Supplier { id: string; name: string; phone: string; email: string; notes: string; active: boolean; payment_terms_days?: number; gstin?: string }
 interface POLine { id: string; stock_item_id: string; stock_item: string; unit: string; qty: number; cost: number; received_qty: number; total: number }
 interface PO { id: string; number: number; supplier_id: string | null; supplier: string; status: string; expected_on: string | null; note: string; lines: POLine[]; total: number; created_at: string; received_at: string | null }
 interface Count { id: string; note: string; user: string; variance_value: number; created_at: string; lines: { name: string; unit: string; expected: number; counted: number; variance: number; value: number }[] }
@@ -43,7 +43,7 @@ const n3 = (v: number) => (Math.round(v * 1000) / 1000).toLocaleString(undefined
 const PO_TONE: Record<string, string> = { draft: "bg-muted text-muted-foreground", sent: "bg-sky/15 text-sky", received: "bg-leaf/15 text-[oklch(0.45_0.12_150)]", cancelled: "bg-muted text-muted-foreground" };
 const KIND_LABEL: Record<string, string> = { received: "Received", sale: "Sold", waste: "Waste", adjust: "Adjusted", count: "Count", transfer_in: "Transfer in", transfer_out: "Transfer out", produced: "Made in-house", prep_use: "Used in a preparation" };
 
-type Tab = "stock" | "recipes" | "orders" | "suppliers" | "count" | "report";
+type Tab = "stock" | "recipes" | "orders" | "bills" | "suppliers" | "count" | "report";
 
 export function InventoryScreen() {
   const { s } = usePos();
@@ -53,12 +53,13 @@ export function InventoryScreen() {
     <div className="flex h-full flex-col gap-4 overflow-auto p-5 md:p-7">
       {manage && (
         <div className="shrink-0 overflow-x-auto">
-          <Seg value={tab} onChange={setTab} options={[["stock", "Stock"], ["recipes", "Recipes & food cost"], ["orders", "Purchase orders"], ["suppliers", "Suppliers"], ["count", "Stock count"], ["report", "Reports"]]} />
+          <Seg value={tab} onChange={setTab} options={[["stock", "Stock"], ["recipes", "Recipes & food cost"], ["orders", "Purchase orders"], ["bills", "Bills & payables"], ["suppliers", "Suppliers"], ["count", "Stock count"], ["report", "Reports"]]} />
         </div>
       )}
       {(tab === "stock" || !manage) && <StockTab manage={manage} />}
       {manage && tab === "recipes" && <RecipesTab />}
       {manage && tab === "orders" && <OrdersTab />}
+      {manage && tab === "bills" && <BillsTab />}
       {manage && tab === "suppliers" && <SuppliersTab />}
       {manage && tab === "count" && <CountTab />}
       {manage && tab === "report" && <ReportTab />}
@@ -410,6 +411,9 @@ function OrdersTab() {
   const { data: suppliers } = usePoll<Supplier[]>("/inventory/suppliers", 0, "inventory");
   const [edit, setEdit] = useState<PO | "new" | null>(null);
   const [recv, setRecv] = useState<PO | null>(null);
+  async function billFromPo(po: PO) {
+    await run(api(`/inventory/purchase-orders/${po.id}/bill`, { method: "POST" }), `Bill entered for PO #${po.number}. Add the supplier's bill number under Bills.`);
+  }
   async function status(po: PO, st: "sent" | "cancelled") {
     if (st === "cancelled" && !confirm(`Cancel purchase order #${po.number}?`)) return;
     if (await run(api(`/inventory/purchase-orders/${po.id}/status`, { body: { status: st } }), st === "sent" ? "Marked as sent" : "Cancelled")) reload();
@@ -427,6 +431,7 @@ function OrdersTab() {
                   <div className="truncate text-xs text-muted-foreground">{po.lines.map((l) => `${n3(l.qty)} ${l.unit} ${l.stock_item}`).join(", ")}{po.expected_on ? ` · due ${new Date(po.expected_on + "T00:00").toLocaleDateString()}` : ""}</div>
                 </div>
                 <div className="font-mono text-sm tabular">{fmt(po.total)}</div>
+                {po.status === "received" && po.supplier_id && <Btn onClick={() => billFromPo(po)}>Enter bill</Btn>}
                 {(po.status === "draft" || po.status === "sent") && (
                   <div className="flex gap-1.5">
                     {po.status === "draft" && <Btn onClick={() => status(po, "sent")}>Mark sent</Btn>}
@@ -559,7 +564,7 @@ function SuppliersTab() {
 }
 
 function SupplierDialog({ s, onClose, onSaved }: { s: Supplier | null; onClose: () => void; onSaved: () => void }) {
-  const [f, setF] = useState({ name: s?.name ?? "", phone: s?.phone ?? "", email: s?.email ?? "", notes: s?.notes ?? "", active: s?.active ?? true });
+  const [f, setF] = useState({ name: s?.name ?? "", phone: s?.phone ?? "", email: s?.email ?? "", notes: s?.notes ?? "", active: s?.active ?? true, payment_terms_days: s?.payment_terms_days ?? 15, gstin: s?.gstin ?? "" });
   const set = (p: Partial<typeof f>) => setF((x) => ({ ...x, ...p }));
   async function save(e: React.FormEvent) {
     e.preventDefault();
@@ -574,6 +579,10 @@ function SupplierDialog({ s, onClose, onSaved }: { s: Supplier | null; onClose: 
           <div className="grid gap-4 sm:grid-cols-2">
             <Field label="Phone"><Input type="tel" maxLength={40} value={f.phone} onChange={(e) => set({ phone: e.target.value })} className="h-11" /></Field>
             <Field label="Email"><Input type="email" maxLength={200} value={f.email} onChange={(e) => set({ email: e.target.value })} className="h-11" /></Field>
+          </div>
+          <div className="grid gap-4 sm:grid-cols-2">
+            <Field label="Pay within (days)" hint="Bills are due this long after their date"><Input type="number" min={0} max={365} value={f.payment_terms_days} onChange={(e) => set({ payment_terms_days: Number(e.target.value) || 0 })} className="h-11 font-mono" /></Field>
+            <Field label="GSTIN / tax ID"><Input maxLength={15} value={f.gstin} onChange={(e) => set({ gstin: e.target.value.toUpperCase() })} className="h-11 font-mono" /></Field>
           </div>
           <Field label="Notes"><Input maxLength={2000} value={f.notes} onChange={(e) => set({ notes: e.target.value })} placeholder="e.g. delivers Tue and Fri, order by 6 pm" className="h-11" /></Field>
           {s && <label className="flex items-center gap-2 text-sm"><input type="checkbox" checked={f.active} onChange={(e) => set({ active: e.target.checked })} className="size-4 accent-foreground" />Still buying from them</label>}
@@ -812,6 +821,177 @@ function PrepDialog({ item, stock, manage, onClose, onSaved }: { item: Stock; st
             {Number(made) > 0 && data.yield > 0 && <p className="text-xs text-muted-foreground">Uses {data.lines.map((l) => `${n3(l.qty * Number(made) / data.yield)} ${l.unit} ${l.stock_item}`).join(", ")}.</p>}
           </div>
         )}
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+/* ---------- Bills & payables ---------- */
+
+interface Bill {
+  id: string; supplier_id: string; supplier: string; po_id: string | null; bill_no: string; bill_date: string; due_date: string;
+  amount: number; tax: number; paid: number; due: number; status: "unpaid" | "partial" | "paid"; days_late: number; note: string;
+  payments: { id: string; amount: number; method: string; reference: string; paid_on: string; user: string }[];
+}
+interface Payables {
+  due: number; overdue: number; due_this_week: number; paid_this_month: number; buckets: { key: string; label: string }[];
+  suppliers: ({ supplier_id: string; supplier: string; bills: number; due: number; credit: number } & Record<string, number | string>)[];
+}
+const PAY_METHODS: [string, string][] = [["bank", "Bank transfer"], ["upi", "UPI"], ["cash", "Cash"], ["cheque", "Cheque"], ["card", "Card"], ["credit", "Supplier credit"]];
+const dateStr = (d: string) => new Date(d + "T00:00").toLocaleDateString(undefined, { day: "numeric", month: "short" });
+const isoToday = () => new Date().toISOString().slice(0, 10);
+
+function BillsTab() {
+  const { fmt } = usePos();
+  const [status, setStatus] = useState<"open" | "paid">("open");
+  const { data: pay, reload: reloadPay } = usePoll<Payables>("/inventory/payables", 60000, "inventory");
+  const { data: bills, reload } = usePoll<Bill[]>(`/inventory/bills?status=${status}`, 60000, "inventory");
+  const { data: suppliers } = usePoll<Supplier[]>("/inventory/suppliers", 0, "inventory");
+  const [edit, setEdit] = useState<Bill | "new" | null>(null);
+  const [paying, setPaying] = useState<Bill | null>(null);
+  const [credit, setCredit] = useState(false);
+  const done = () => { reload(); reloadPay(); };
+
+  return (
+    <>
+      <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
+        <Tile label="You owe" value={fmt(pay?.due ?? 0)} sub="Unpaid bills" />
+        <Tile label="Overdue" value={fmt(pay?.overdue ?? 0)} sub="Past their due date" warn={!!pay?.overdue} />
+        <Tile label="Due in 7 days" value={fmt(pay?.due_this_week ?? 0)} />
+        <Tile label="Paid this month" value={fmt(pay?.paid_this_month ?? 0)} />
+      </div>
+      {!!pay?.suppliers.length && (
+        <Card>
+          <div className="overflow-x-auto">
+            <table className="w-full min-w-[640px] text-sm">
+              <thead><tr className="border-b border-border text-xs text-muted-foreground">
+                {["Supplier", ...pay.buckets.map((b) => b.label), "Total", "Credit"].map((h, i) => <th key={h} className={cn("px-4 py-3 font-medium", i === 0 ? "text-left" : "text-right")}>{h}</th>)}
+              </tr></thead>
+              <tbody>{pay.suppliers.map((r) => (
+                <tr key={r.supplier_id} className="border-b border-border/60 last:border-0">
+                  <td className="px-4 py-2.5 font-medium">{r.supplier}<span className="block text-xs font-normal text-muted-foreground">{r.bills} open bill{r.bills === 1 ? "" : "s"}</span></td>
+                  {pay.buckets.map((b) => <td key={b.key} className={cn("px-4 py-2.5 text-right font-mono tabular", b.key !== "current" && Number(r[b.key]) > 0 && "text-destructive")}>{Number(r[b.key]) ? fmt(Number(r[b.key])) : "—"}</td>)}
+                  <td className="px-4 py-2.5 text-right font-mono font-semibold tabular">{fmt(r.due)}</td>
+                  <td className="px-4 py-2.5 text-right font-mono tabular text-[oklch(0.45_0.12_150)]">{r.credit ? fmt(r.credit) : "—"}</td>
+                </tr>
+              ))}</tbody>
+            </table>
+          </div>
+        </Card>
+      )}
+      <div className="flex flex-wrap items-center gap-2">
+        <Seg value={status} onChange={setStatus} options={[["open", "To pay"], ["paid", "Paid"]]} />
+        <Btn onClick={() => setCredit(true)} className="ml-auto h-10" disabled={!suppliers?.length}>Supplier credit</Btn>
+        <Primary onClick={() => setEdit("new")} disabled={!suppliers?.length}><Plus className="size-4" />Enter a bill</Primary>
+      </div>
+      <Card>
+        {!bills ? <Empty>Loading…</Empty> : !bills.length ? <Empty>{status === "open" ? "Nothing to pay. Enter supplier bills here, or from a received purchase order." : "No paid bills yet."}</Empty> : (
+          <div className="divide-y divide-border">
+            {bills.map((b) => (
+              <div key={b.id} className="flex flex-wrap items-center gap-3 px-4 py-3">
+                <button onClick={() => setEdit(b)} className="min-w-0 flex-1 text-left">
+                  <div className="flex flex-wrap items-center gap-2 font-medium">{b.supplier} · {b.bill_no || "no bill number"}
+                    {b.status === "partial" && <span className="rounded-md bg-sky/15 px-1.5 text-[11px] font-semibold text-sky">Part paid</span>}
+                    {b.days_late > 0 && <span className="rounded-md bg-destructive/10 px-1.5 text-[11px] font-semibold text-destructive">{b.days_late} days late</span>}</div>
+                  <div className="text-xs text-muted-foreground">Billed {dateStr(b.bill_date)} · due {dateStr(b.due_date)}{b.tax ? ` · tax ${fmt(b.tax)}` : ""}{b.payments.length ? ` · paid ${b.payments.map((p) => `${fmt(p.amount)} ${p.method}`).join(", ")}` : ""}</div>
+                </button>
+                <div className="text-right font-mono text-sm tabular">{fmt(b.status === "paid" ? b.amount : b.due)}{b.status === "partial" && <span className="block text-xs text-muted-foreground">of {fmt(b.amount)}</span>}</div>
+                {b.status !== "paid" && <Btn onClick={() => setPaying(b)} className="bg-foreground text-background">Pay</Btn>}
+              </div>
+            ))}
+          </div>
+        )}
+      </Card>
+      {edit && suppliers && <BillDialog bill={edit === "new" ? null : edit} suppliers={suppliers} onClose={() => setEdit(null)} onSaved={() => { setEdit(null); done(); }} />}
+      {paying && <PayBillDialog bill={paying} onClose={() => setPaying(null)} onSaved={() => { setPaying(null); done(); }} />}
+      {credit && suppliers && <CreditDialog suppliers={suppliers} onClose={() => setCredit(false)} onSaved={() => { setCredit(false); done(); }} />}
+    </>
+  );
+}
+
+function BillDialog({ bill, suppliers, onClose, onSaved }: { bill: Bill | null; suppliers: Supplier[]; onClose: () => void; onSaved: () => void }) {
+  const [f, setF] = useState({
+    supplier_id: bill?.supplier_id ?? suppliers.find((s) => s.active)?.id ?? "", bill_no: bill?.bill_no ?? "", bill_date: bill?.bill_date ?? isoToday(),
+    due_date: bill?.due_date ?? "", amount: bill ? String(bill.amount) : "", tax: bill?.tax ? String(bill.tax) : "", note: bill?.note ?? "",
+  });
+  const set = (p: Partial<typeof f>) => setF((x) => ({ ...x, ...p }));
+  const terms = suppliers.find((s) => s.id === f.supplier_id)?.payment_terms_days ?? 0;
+  async function save(e: React.FormEvent) {
+    e.preventDefault();
+    const body = { ...f, po_id: bill?.po_id ?? null, due_date: f.due_date || null, amount: Number(f.amount), tax: Number(f.tax) || 0 };
+    if (await run(bill ? api(`/inventory/bills/${bill.id}`, { method: "PUT", body }) : api("/inventory/bills", { body }), bill ? "Bill saved" : "Bill entered")) onSaved();
+  }
+  async function remove() {
+    if (bill && confirm("Delete this bill?") && await run(api(`/inventory/bills/${bill.id}`, { method: "DELETE" }), "Bill deleted")) onSaved();
+  }
+  return (
+    <Dialog open onOpenChange={(o) => !o && onClose()}>
+      <DialogContent className="sm:max-w-md">
+        <DialogHeader><DialogTitle>{bill ? "Bill" : "Enter a bill"}</DialogTitle><DialogDescription>A supplier&apos;s invoice: what you owe and by when.</DialogDescription></DialogHeader>
+        <form onSubmit={save} className="grid gap-4">
+          <Field label="Supplier"><select required value={f.supplier_id} onChange={(e) => set({ supplier_id: e.target.value })} className={sel}>
+            {suppliers.filter((s) => s.active || s.id === f.supplier_id).map((s) => <option key={s.id} value={s.id}>{s.name}</option>)}</select></Field>
+          <div className="grid grid-cols-2 gap-4">
+            <Field label="Bill number"><Input value={f.bill_no} maxLength={60} onChange={(e) => set({ bill_no: e.target.value })} className="h-11" /></Field>
+            <Field label="Bill date"><Input required type="date" value={f.bill_date} onChange={(e) => set({ bill_date: e.target.value })} className="h-11" /></Field>
+            <Field label="Total with tax"><Input required type="number" min={0} step="0.01" value={f.amount} onChange={(e) => set({ amount: e.target.value })} className="h-11 font-mono" /></Field>
+            <Field label="Of which tax"><Input type="number" min={0} step="0.01" value={f.tax} onChange={(e) => set({ tax: e.target.value })} placeholder="0" className="h-11 font-mono" /></Field>
+          </div>
+          <Field label="Due date" hint={f.due_date ? undefined : `Leave empty: ${terms} days after the bill date (the supplier's terms)`}><Input type="date" value={f.due_date} onChange={(e) => set({ due_date: e.target.value })} className="h-11" /></Field>
+          <Field label="Note"><Input value={f.note} maxLength={300} onChange={(e) => set({ note: e.target.value })} className="h-11" /></Field>
+          <div className="flex gap-2">
+            {bill && !bill.payments.length && <button type="button" onClick={remove} className="grid size-11 shrink-0 place-items-center rounded-xl bg-destructive/10 text-destructive" aria-label="Delete bill"><Trash2 className="size-4" /></button>}
+            <Primary type="submit" className="h-11 flex-1 justify-center">{bill ? "Save" : "Enter bill"}</Primary>
+          </div>
+        </form>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+function PayBillDialog({ bill, onClose, onSaved }: { bill: Bill; onClose: () => void; onSaved: () => void }) {
+  const { fmt } = usePos();
+  const [f, setF] = useState({ amount: String(bill.due), method: "bank", reference: "", paid_on: isoToday() });
+  const set = (p: Partial<typeof f>) => setF((x) => ({ ...x, ...p }));
+  async function pay(e: React.FormEvent) {
+    e.preventDefault();
+    if (await run(api(`/inventory/bills/${bill.id}/payments`, { body: { ...f, amount: Number(f.amount) } }), `${fmt(Number(f.amount))} paid to ${bill.supplier}`)) onSaved();
+  }
+  return (
+    <Dialog open onOpenChange={(o) => !o && onClose()}>
+      <DialogContent className="sm:max-w-md">
+        <DialogHeader><DialogTitle>Pay {bill.supplier}</DialogTitle><DialogDescription>Bill {bill.bill_no || "without a number"} · {fmt(bill.due)} left of {fmt(bill.amount)}</DialogDescription></DialogHeader>
+        <form onSubmit={pay} className="grid gap-4">
+          <div className="grid grid-cols-2 gap-4">
+            <Field label="Amount"><Input required type="number" min={0} step="0.01" max={bill.due} value={f.amount} onChange={(e) => set({ amount: e.target.value })} className="h-11 font-mono" /></Field>
+            <Field label="Paid on"><Input type="date" value={f.paid_on} onChange={(e) => set({ paid_on: e.target.value })} className="h-11" /></Field>
+          </div>
+          <Field label="How"><select value={f.method} onChange={(e) => set({ method: e.target.value })} className={sel}>{PAY_METHODS.map(([k, l]) => <option key={k} value={k}>{l}</option>)}</select></Field>
+          <Field label="Reference"><Input value={f.reference} maxLength={80} onChange={(e) => set({ reference: e.target.value })} placeholder="UTR, cheque no." className="h-11" /></Field>
+          <Primary type="submit" className="h-11 justify-center" disabled={!(Number(f.amount) > 0)}>Record payment</Primary>
+        </form>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+function CreditDialog({ suppliers, onClose, onSaved }: { suppliers: Supplier[]; onClose: () => void; onSaved: () => void }) {
+  const [f, setF] = useState({ supplier_id: suppliers.find((s) => s.active)?.id ?? "", amount: "", reason: "" });
+  const set = (p: Partial<typeof f>) => setF((x) => ({ ...x, ...p }));
+  async function save(e: React.FormEvent) {
+    e.preventDefault();
+    if (await run(api(`/inventory/suppliers/${f.supplier_id}/credits`, { body: { amount: Number(f.amount), reason: f.reason } }), "Credit recorded")) onSaved();
+  }
+  return (
+    <Dialog open onOpenChange={(o) => !o && onClose()}>
+      <DialogContent className="sm:max-w-md">
+        <DialogHeader><DialogTitle>Supplier credit</DialogTitle><DialogDescription>Money a supplier owes you back (returned goods, short supply). Use it later to pay their bills.</DialogDescription></DialogHeader>
+        <form onSubmit={save} className="grid gap-4">
+          <Field label="Supplier"><select value={f.supplier_id} onChange={(e) => set({ supplier_id: e.target.value })} className={sel}>{suppliers.filter((s) => s.active).map((s) => <option key={s.id} value={s.id}>{s.name}</option>)}</select></Field>
+          <Field label="Amount"><Input required type="number" min={0} step="0.01" value={f.amount} onChange={(e) => set({ amount: e.target.value })} className="h-11 font-mono" /></Field>
+          <Field label="Reason"><Input required minLength={2} maxLength={200} value={f.reason} onChange={(e) => set({ reason: e.target.value })} placeholder="Returned 5 kg spoiled tomatoes" className="h-11" /></Field>
+          <Primary type="submit" className="h-11 justify-center">Record credit</Primary>
+        </form>
       </DialogContent>
     </Dialog>
   );
