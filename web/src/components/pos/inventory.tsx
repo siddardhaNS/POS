@@ -412,6 +412,14 @@ function OrdersTab() {
   const { data: suppliers } = usePoll<Supplier[]>("/inventory/suppliers", 0, "inventory");
   const [edit, setEdit] = useState<PO | "new" | null>(null);
   const [recv, setRecv] = useState<PO | null>(null);
+  async function reorder() {
+    const r = await run(api<{ created: PO[]; no_supplier: string[] }>("/inventory/purchase-orders/reorder", { method: "POST" }));
+    if (!r) return;
+    if (r.created.length) toast.success(`${r.created.length} draft order${r.created.length === 1 ? "" : "s"} made. Check the quantities, then mark them sent.`);
+    else toast.info("Nothing to reorder: no item is at or below its reorder level (or it's already on an open order).");
+    if (r.no_supplier.length) toast.warning(`No supplier set for ${r.no_supplier.join(", ")}`);
+    reload();
+  }
   async function billFromPo(po: PO) {
     await run(api(`/inventory/purchase-orders/${po.id}/bill`, { method: "POST" }), `Bill entered for PO #${po.number}. Add the supplier's bill number under Bills.`);
   }
@@ -421,7 +429,10 @@ function OrdersTab() {
   }
   return (
     <>
-      <div className="flex"><Primary className="ml-auto" onClick={() => setEdit("new")} disabled={!stock?.items.length}><PackagePlus className="size-4" />New purchase order</Primary></div>
+      <div className="flex flex-wrap items-center justify-end gap-2">
+        <Btn onClick={reorder} className="h-10" disabled={!stock?.items.length} title="Draft an order per supplier for everything at or below its reorder level">Reorder low stock</Btn>
+        <Primary onClick={() => setEdit("new")} disabled={!stock?.items.length}><PackagePlus className="size-4" />New purchase order</Primary>
+      </div>
       <Card>
         {!data ? <Empty>Loading…</Empty> : !data.length ? <Empty>No purchase orders yet. Create one to order stock from a supplier, then receive it when it arrives.</Empty> : (
           <div className="divide-y divide-border">

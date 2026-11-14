@@ -656,3 +656,41 @@ def produce(iid: str, body: ProduceIn, ctx: Ctx = Depends(VIEW), db: Session = D
     db.commit()
     return {**item_out(i, supplier_names(db, ctx)), "batch_cost": money(cost),
             "warning": f"Stock went below zero for {', '.join(short)}: check the counts" if short else ""}
+
+
+# ---------- Automatic reordering ----------
+
+@router.post("/purchase-orders/reorder")
+def reorder_low(ctx: Ctx = Depends(MANAGE), db: Session = Depends(get_db)):
+    """Draft a purchase order per supplier for everything at or below its reorder level, enough to bring it back to
+    twice the reorder level, at the last average cost. Items already on an open (draft or sent) order are skipped, so
+    running it again doesn't double up. The drafts are for a person to check and send."""
+    open_ids = set(db.scalars(select(PurchaseOrderLine.stock_item_id).join(PurchaseOrder, PurchaseOrder.id == PurchaseOrderLine.po_id)
+                              .where(PurchaseOrder.tenant_id == ctx.tenant_id, PurchaseOrder.status.in_(("draft", "sent")))))
+    low = [s for s in db.scalars(select(StockItem).where(StockItem.tenant_id == ctx.tenant_id, StockItem.active.is_(True),
+                                                         StockItem.is_prep.is_(False), StockItem.par_level > 0))
+           if D(s.on_hand) <= D(s.par_level) and s.id not in open_ids]
+    by_supplier: dict[str | None, list[StockItem]] = defaultdict(list)
+    for s in low:
+        by_supplier[s.supplier_id].append(s)
+    n = db.scalar(select(func.max(PurchaseOrder.number)).where(PurchaseOrder.tenant_id == ctx.tenant_id)) or 0
+    made, unassigned = [], []
+    for sid, items in by_supplier.items():
+        if not sid:
+            unassigned += [s.name for s in items]
+            continue
+        n += 1
+        po = PurchaseOrder(tenant_id=ctx.tenant_id, number=n, supplier_id=sid, created_by=ctx.user.id,
+                           note="Drafted automatically from reorder levels")
+        for k, s in enumerate(items):
+            need = D(s.par_level) * 2 - max(D(s.on_hand), Decimal(0))
+            po.lines.append(PurchaseOrderLine(tenant_id=ctx.tenant_id, stock_item_id=s.id, qty=need.quantize(Decimal("0.0001")),
+                                              unit_cost=D(s.avg_cost), sort=k))
+        db.add(po)
+        made.append(po)
+    if made:
+        audit(db, ctx, "purchase_order", detail=f"{len(made)} reorder draft{'s' if len(made) > 1 else ''} from reorder levels")
+    db.commit()
+    stock, names = stock_map(db, ctx), supplier_names(db, ctx)
+    return {"created": [po_out(get_po(db, ctx, p.id), stock, names) for p in made], "no_supplier": unassigned,
+            "already_on_order": len(open_ids)}
