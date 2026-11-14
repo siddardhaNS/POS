@@ -12,7 +12,10 @@ import { Empty, Seg, run, usePoll, usePos } from "./shared";
 
 /* ---------- Types (mirror api/app/routers/locations.py) ---------- */
 
-interface Totals { net_sales: number; orders: number; tax: number; tips: number; discounts: number; refunds: number; open_checks: number; avg_check: number }
+interface Totals {
+  net_sales: number; orders: number; tax: number; tips: number; discounts: number; refunds: number; open_checks: number; avg_check: number;
+  inventory?: boolean; stock_value?: number; purchases?: number; food_used?: number; waste?: number; transfers_in?: number; transfers_out?: number; payables?: number;
+}
 export interface Location {
   id: string; name: string; location_name: string; city: string; address: string; phone: string; status: string;
   currency: string; timezone: string; home: boolean; current: boolean; today?: Totals;
@@ -175,6 +178,26 @@ export function LocationsScreen() {
                     <td className="pt-3 text-right font-mono tabular">{sum.total.open_checks}</td>
                   </tr>
                 )}
+              </tbody>
+            </table>
+          </div>
+        )}
+        {sum && sum.locations.some((l) => l.inventory) && (
+          <div className="mt-6 overflow-x-auto">
+            <div className="mb-2 font-semibold">Stock &amp; purchases</div>
+            <table className="w-full min-w-[620px] text-sm">
+              <thead><tr className="border-b border-border text-xs text-muted-foreground">
+                {["Location", "Stock value now", "Purchases", "Food used", "Waste", "Transfers in / out", "Unpaid bills"].map((h, i) => <th key={h} className={cn("pb-2 font-medium", i ? "text-right" : "text-left")}>{h}</th>)}
+              </tr></thead>
+              <tbody>
+                {[...sum.locations.filter((l) => l.inventory), ...(sum.total && sum.locations.filter((l) => l.inventory).length > 1 ? [{ ...sum.total, id: "total", name: "Total", location_name: "Total", city: "", inventory: true } as Location & Totals] : [])].map((l) => (
+                  <tr key={l.id} className={cn("border-b border-border/60", l.id === "total" && "font-semibold")}>
+                    <td className="py-2.5 font-medium">{locationLabel(l)}</td>
+                    {[l.stock_value, l.purchases, l.food_used, l.waste].map((v, i) => <td key={i} className="py-2.5 text-right font-mono tabular">{fmtC(v ?? 0, l.currency)}</td>)}
+                    <td className="py-2.5 text-right font-mono tabular">{fmtC(l.transfers_in ?? 0, l.currency)} / {fmtC(l.transfers_out ?? 0, l.currency)}</td>
+                    <td className="py-2.5 text-right font-mono tabular">{fmtC(l.payables ?? 0, l.currency)}</td>
+                  </tr>
+                ))}
               </tbody>
             </table>
           </div>

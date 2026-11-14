@@ -13,7 +13,7 @@ from sqlalchemy import func, select
 from sqlalchemy.orm import Session, selectinload
 
 from ..db import get_db
-from ..deps import LIVE_STATUSES, PERMISSIONS, Ctx, current_user, has_location_access, needs, require
+from ..deps import LIVE_STATUSES, PERMISSIONS, Ctx, current_user, has_location_access, has_module, needs, require
 from ..models import (AuditLog, Brand, DiningTable, FloorSection, MenuCategory, MenuItem, ModifierGroup, ModifierOption,
                       Order, Tenant, User, UserLocation)
 from ..seed import TABLE_SEATS, provision_tenant
@@ -89,8 +89,27 @@ def totals(db: Session, t: Tenant, start: date, end: date) -> dict:
         "tips": money(sum((o.tip for o in orders), Decimal(0))),
         "discounts": money(sum((o.discount_amount for o in orders), Decimal(0))),
         "refunds": money(sum((o.refunded for o in orders), Decimal(0))),
-        "open_checks": open_now,
+        "open_checks": open_now, **stock_totals(db, t, lo, hi),
     }
+
+
+def stock_totals(db: Session, t: Tenant, lo: datetime, hi: datetime) -> dict:
+    """Inventory side of an outlet: stock value now, purchases received and food used in the range, unpaid bills."""
+    if not has_module(t, "inventory"):
+        return {"inventory": False}
+    from ..models import StockItem, StockMovement, VendorBill, VendorPayment
+    value = db.scalar(select(func.coalesce(func.sum(StockItem.on_hand * StockItem.avg_cost), 0)).where(
+        StockItem.tenant_id == t.id, StockItem.active.is_(True), StockItem.on_hand > 0)) or 0
+    moves = dict(db.execute(select(StockMovement.kind, func.coalesce(func.sum(StockMovement.qty * StockMovement.unit_cost), 0))
+                            .where(StockMovement.tenant_id == t.id, StockMovement.created_at >= lo, StockMovement.created_at < hi,
+                                   StockMovement.kind.in_(("received", "sale", "waste", "transfer_in", "transfer_out")))
+                            .group_by(StockMovement.kind)).all())
+    billed = db.scalar(select(func.coalesce(func.sum(VendorBill.amount), 0)).where(VendorBill.tenant_id == t.id)) or 0
+    paid = db.scalar(select(func.coalesce(func.sum(VendorPayment.amount), 0)).where(VendorPayment.tenant_id == t.id)) or 0
+    return {"inventory": True, "stock_value": money(value), "purchases": money(moves.get("received", 0)),
+            "food_used": money(-Decimal(moves.get("sale", 0))), "waste": money(-Decimal(moves.get("waste", 0))),
+            "transfers_in": money(moves.get("transfer_in", 0)), "transfers_out": money(-Decimal(moves.get("transfer_out", 0))),
+            "payables": money(Decimal(billed) - Decimal(paid))}
 
 
 def location_out(t: Tenant, home: Tenant, current: Tenant | None) -> dict:
@@ -147,6 +166,9 @@ def consolidated(start: date | None = Query(None), end: date | None = Query(None
         total["open_checks"] = int(total["open_checks"])
         total["avg_check"] = round(total["net_sales"] / total["orders"], 2) if total["orders"] else 0
         total["currency"] = rows[0]["currency"]
+        stock = [r for r in rows if r.get("inventory")]
+        for k in ("stock_value", "purchases", "food_used", "waste", "transfers_in", "transfers_out", "payables"):
+            total[k] = round(sum(r[k] for r in stock), 2)
     return {"start": start.isoformat(), "end": end.isoformat(), "locations": rows, "total": total}
 
 
