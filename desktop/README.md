@@ -5,15 +5,18 @@ card (split if needed), hand over a token, print the receipt (and a kitchen tick
 when the internet drops**: the menu, prices and tax rules are stored on the computer, sales are saved locally with a
 token number and sent to the server when the connection is back (sending twice never creates two bills).
 
-## Use it
+## How it works
 
-1. Install and open Tiffin Counter.
-2. First run: enter the server address and sign in with the owner's or a manager's email (needs the internet once).
-3. Staff pick their name and type their PIN (also needs the internet; when it's down, the last person signed in can
-   carry on).
-4. Settings: pick the receipt printer, paper width (80 / 58 mm), and whether to print a kitchen ticket.
+- **Online:** the window shows the full Tiffin POS (tables, kitchen, online orders, reports, inventory, everything),
+  always the latest version. Receipts and kitchen tickets print straight to the printer, no dialog.
+- **Offline:** if the server can't be reached for about 30 seconds, the app switches to quick billing (packaged with
+  the app). It uses the sign-in, staff, menu, prices and taxes it saved while online.
+- **Back online:** offline sales are sent first; then (with no bill half-done) the full POS opens again by itself.
 
-Keyboard: **F2** pay, **Esc** clear search; PIN digits can be typed.
+There is no server address to type: it is built into the app (`electron/config.cjs`). Restaurants install, open and
+sign in exactly as on the web. The app must have been signed in once while online before it can bill offline.
+
+Keyboard in quick billing: **F2** pay, **Esc** clear search.
 
 ## How offline works
 
@@ -31,10 +34,10 @@ Keyboard: **F2** pay, **Esc** clear search; PIN digits can be typed.
 ```bash
 cd desktop
 npm install
-npm run dev        # the screen (Vite on :5174) inside the Electron window
-npm run build      # type-check and build
-npm run dist       # Windows installer in release/
+npm run dev           # full mode against the local stack (web :3100, API :8010)
+npm run dev:counter   # just the quick-billing screen, with live reload
+npm run build         # type-check and build
+npm run dist          # Windows installer in release/
 ```
 
-During development the API must allow `http://localhost:5174` in `CORS_ORIGINS` only when you open the screen in a
-normal browser; inside Electron all requests go through the app itself.
+Set `TIFFIN_WEB_URL` / `TIFFIN_API_URL` to point a build at another server.

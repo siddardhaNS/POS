@@ -12,7 +12,9 @@ const blank = (inclusive: boolean): Pick<Sale, "lines" | "discount_kind" | "disc
   ({ lines: [], discount_kind: "", discount_value: 0, discount_reason: "", customer_name: "", customer_phone: "", tax_inclusive: inclusive, payments: [] });
 
 /** Quick-service billing: tap dishes, take the money, print, next guest. Works the same with or without internet. */
-export function Sell({ staff, boot, online, onSaved, say }: { staff: Session; boot: Bootstrap | null; online: boolean | null; onSaved: () => void; say: Toast }) {
+export function Sell({ staff, boot, online, onSaved, say, onBillChange }: {
+  staff: Session; boot: Bootstrap | null; online: boolean | null; onSaved: () => void; say: Toast; onBillChange?: (open: boolean) => void;
+}) {
   const t = boot?.tenant ?? staff.tenant!;
   const fmt = (v: number) => money(v, t.currency);
   const [cat, setCat] = useState<string | null>(null);
@@ -22,6 +24,7 @@ export function Sell({ staff, boot, online, onSaved, say }: { staff: Session; bo
   const [paying, setPaying] = useState(false);
   const [discount, setDiscount] = useState(false);
   const tot = totals(cart);
+  useEffect(() => { onBillChange?.(cart.lines.length > 0 || paying); }, [cart.lines.length, paying, onBillChange]);
   const menu = useMemo(() => (boot?.menu ?? []).map((c) => ({ ...c, items: c.items.filter((i) => !i.channels?.length || i.channels.includes("takeaway")) })).filter((c) => c.items.length), [boot]);
   const active = cat ?? menu[0]?.id ?? null;
   const items = useMemo(() => {

@@ -1,4 +1,4 @@
-import { store } from "./store";
+import { store, type Bootstrap, type Session } from "./store";
 
 /* The desktop shell (preload) gives us window.tiffin; running in a plain browser (npm run dev in a browser) falls back
    to fetch. */
@@ -7,7 +7,12 @@ interface Bridge {
     Promise<{ ok: boolean; status: number; text: string; error?: string }>;
   printers: () => Promise<{ name: string; isDefault: boolean }[]>;
   print: (job: { html: string; printer?: string; widthMm?: number }) => Promise<{ ok: boolean; error: string }>;
-  info: () => Promise<{ version: string; platform: string }>;
+  info: () => Promise<{ version: string; platform: string; mode?: string }>;
+  /** Sign-in, staff and menu saved by the app while the full POS was online, and where the server is. */
+  cached: () => Promise<{ device?: Session | null; staff?: Session | null; boot?: Bootstrap; apiUrl: string; webUrl: string }>;
+  goFull: () => Promise<boolean>;
+  savePrinter: (p: { name: string; widthMm: number }) => Promise<boolean>;
+  onOnline: (fn: (ok: boolean) => void) => () => void;
 }
 declare global { interface Window { tiffin?: Bridge } }
 

@@ -14,7 +14,13 @@ export function Settings({ sync, say, onSignOut }: { sync: ReturnType<typeof use
     bridge?.printers().then(setPrinters).catch(() => {});
     bridge?.info().then(setInfo).catch(() => {});
   }, []);
-  const set = (p: Partial<Config>) => { store.setConfig(p); setCfg(store.config()); };
+  const set = (p: Partial<Config>) => {
+    store.setConfig(p);
+    const c = store.config();
+    setCfg(c);
+    // The full POS prints through the same printer.
+    if (p.printer !== undefined || p.paperMm !== undefined) void bridge?.savePrinter({ name: c.printer, widthMm: c.paperMm });
+  };
   const boot = sync.boot;
 
   return (
@@ -49,7 +55,6 @@ export function Settings({ sync, say, onSignOut }: { sync: ReturnType<typeof use
 
         <div className="card" style={{ padding: 18, display: "grid", gap: 8 }}>
           <b>Connection</b>
-          <div className="muted">Server: {cfg.apiUrl}</div>
           <div className="muted">Status: {sync.online === false ? "offline (billing continues, sales are kept here)" : sync.online ? "online" : "checking"}{sync.lastSync ? ` · last synced ${new Date(sync.lastSync).toLocaleTimeString()}` : ""}</div>
           <div className="muted">Menu downloaded: {boot ? new Date(boot.fetched_at).toLocaleString() : "not yet"} · {boot?.menu.reduce((a, c) => a + c.items.length, 0) ?? 0} dishes</div>
           <div className="muted">Sales waiting to send: {sync.queued}</div>

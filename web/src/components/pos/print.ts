@@ -17,7 +17,17 @@ const CSS = `
 `;
 
 /** Print an HTML snippet on the default (receipt) printer via a hidden iframe. */
+/** Set by the Tiffin Counter desktop app: prints straight to the computer's printer, no dialog. */
+interface DesktopBridge { print: (job: { html: string; printer?: string; widthMm?: number }) => Promise<{ ok: boolean; error: string }> }
+const desktop = () => (typeof window !== "undefined" ? (window as unknown as { tiffinDesktop?: DesktopBridge }).tiffinDesktop : undefined);
+
 export function printHtml(body: string, title = "Print") {
+  const d = desktop();
+  if (d) {
+    const html = `<!doctype html><html><head><meta charset="utf-8"><title>${esc(title)}</title><style>${CSS}</style></head><body>${body}</body></html>`;
+    void d.print({ html }).then((r) => { if (!r.ok) console.error("Desktop print failed:", r.error); });
+    return;
+  }
   const f = document.createElement("iframe");
   f.style.cssText = "position:fixed;right:0;bottom:0;width:0;height:0;border:0";
   document.body.appendChild(f);

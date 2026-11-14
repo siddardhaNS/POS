@@ -4,11 +4,11 @@
   "version": "0.1.0",
   "type": "module",
   "scripts": {
-    "dev": "concurrently -k -n web,app \"vite\" \"wait-on tcp:5174 && cross-env TIFFIN_DEV_URL=http://localhost:5174 electron .\"",
+    "dev": "npm run build && cross-env TIFFIN_WEB_URL=http://localhost:3100 TIFFIN_API_URL=http://localhost:8010 electron .",
+    "dev:counter": "concurrently -k -n web,app \"vite\" \"wait-on tcp:5174 && cross-env TIFFIN_COUNTER_ONLY=1 TIFFIN_DEV_URL=http://localhost:5174 TIFFIN_API_URL=http://localhost:8010 electron .\"",
     "build": "tsc -b && vite build",
     "start": "electron .",
-    "dist": "npm run build && electron-builder --win nsis",
-    "lint": "oxlint"
+    "dist": "npm run build && electron-builder --win nsis"
   },
   "dependencies": {
     "react": "^19.3.1",
