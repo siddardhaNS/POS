@@ -12,3 +12,7 @@ venv/
 *.log
 .vercel
 .claude/worktrees/
+
+# Local working files and tool caches (kept inside the project folder)
+.scratch/
+.cache/
