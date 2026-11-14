@@ -1,0 +1,30 @@
+:root {
+  --bg: #f6f3ee; --card: #fff; --ink: #1d1c1a; --muted: #77736b; --line: #e6e1d8; --soft: #efebe4;
+  --saffron: #ec7a2c; --saffron-soft: #fbe6d4; --saffron-deep: #b4561a; --leaf: #2f9e5b; --leaf-soft: #dcf1e4;
+  --chili: #d64545; --chili-soft: #fbe1e1; --sky: #2f7fd1; --sky-soft: #e0edfa;
+  font-family: "Segoe UI", system-ui, -apple-system, sans-serif; color: var(--ink); background: var(--bg);
+}
+* { box-sizing: border-box; }
+html, body, #root { height: 100%; margin: 0; }
+body { user-select: none; -webkit-user-select: none; }
+input, textarea, select { user-select: text; font: inherit; color: inherit; }
+button { font: inherit; color: inherit; cursor: pointer; border: 0; background: none; }
+button:disabled { opacity: .4; cursor: default; }
+.mono { font-variant-numeric: tabular-nums; font-family: ui-monospace, Consolas, monospace; }
+.muted { color: var(--muted); font-size: 13px; }
+.btn { height: 48px; border-radius: 12px; padding: 0 18px; font-weight: 600; background: var(--ink); color: #fff; }
+.btn.soft { background: var(--soft); color: var(--ink); }
+.btn.ok { background: var(--leaf); }
+.btn.danger { background: var(--chili); }
+.btn.sm { height: 36px; border-radius: 10px; padding: 0 12px; font-size: 14px; }
+.input { height: 44px; border-radius: 10px; border: 1px solid var(--line); background: var(--card); padding: 0 12px; width: 100%; font-size: 15px; }
+.card { background: var(--card); border: 1px solid var(--line); border-radius: 16px; }
+.pill { display: inline-block; border-radius: 6px; padding: 1px 7px; font-size: 11px; font-weight: 700; }
+.chip { height: 40px; padding: 0 16px; border-radius: 12px; background: var(--card); border: 1px solid var(--line); font-weight: 600; white-space: nowrap; }
+.chip.on { background: var(--ink); color: #fff; border-color: var(--ink); }
+.scroll { overflow-y: auto; }
+.center { display: grid; place-items: center; height: 100%; }
+.modal-bg { position: fixed; inset: 0; background: rgba(0,0,0,.35); display: grid; place-items: center; z-index: 50; }
+.modal { background: var(--bg); border-radius: 20px; padding: 22px; width: min(560px, 92vw); max-height: 88vh; overflow-y: auto; display: grid; gap: 14px; }
+.toast { position: fixed; bottom: 22px; left: 50%; transform: translateX(-50%); background: var(--ink); color: #fff; padding: 12px 18px; border-radius: 12px; z-index: 60; font-weight: 600; }
+.toast.bad { background: var(--chili); }
