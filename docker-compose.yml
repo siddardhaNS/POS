@@ -18,7 +18,7 @@ services:
       JWT_SECRET: ${JWT_SECRET:-dev-secret-change-me}
       PLATFORM_ADMIN_EMAIL: ${PLATFORM_ADMIN_EMAIL:-admin@tiffin.app}
       PLATFORM_ADMIN_PASSWORD: ${PLATFORM_ADMIN_PASSWORD:-admin12345}
-      CORS_ORIGINS: http://localhost:3100,http://localhost:3000
+      CORS_ORIGINS: http://localhost:3100,http://localhost:3000,http://localhost:8081
       SEED_DEMO: "true"
       ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
     ports: ["8010:8000"]
