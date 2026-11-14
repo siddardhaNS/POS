@@ -169,6 +169,11 @@ class Order(Base):
     rider_name: Mapped[str] = mapped_column(String(120), default="")
     dispatched_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     delivered_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    # Catering / events (channel "catering"): when and where, and how far along it is
+    event_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True, index=True)
+    event_venue: Mapped[str] = mapped_column(Text, default="")
+    event_note: Mapped[str] = mapped_column(Text, default="")
+    event_status: Mapped[str] = mapped_column(String(10), default="")  # quote | confirmed | done | cancelled
     # Invoice number, given when the check is paid: sequential per financial year
     invoice_no: Mapped[str] = mapped_column(String(40), default="", index=True)
     invoice_fy: Mapped[str] = mapped_column(String(9), default="")

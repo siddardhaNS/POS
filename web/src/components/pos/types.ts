@@ -45,6 +45,7 @@ export interface Order {
   promotion?: { id: string; name: string; amount: number } | null;
   loyalty?: { points: number; value: number; min_redeem: number } | null;
   delivery?: Delivery | null;
+  event?: { at: string | null; venue: string; note: string; status: "quote" | "confirmed" | "done" | "cancelled" | "" } | null;
   tax_breakdown?: TaxPart[];
 }
 export interface Delivery {

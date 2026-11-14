@@ -43,7 +43,7 @@ export function header(t: Tenant | null | undefined) {
 }
 
 /** Guest check: "bill" before payment, "receipt" after. */
-export function printReceipt(o: Order, t: Tenant | null | undefined, fmt: (v: number) => string, kind: "bill" | "receipt" = "receipt") {
+export function printReceipt(o: Order, t: Tenant | null | undefined, fmt: (v: number) => string, kind: "bill" | "receipt" | "quote" = "receipt") {
   const lines = o.items.map((l) => `
     <div class="r"><span>${l.qty} × ${esc(l.name)}</span><span>${l.comp_reason ? "COMP" : fmt(l.line_total)}</span></div>
     ${l.modifiers.map((m) => `<div class="m">+ ${esc(m.name)}${m.price ? ` (${fmt(m.price)})` : ""}</div>`).join("")}
@@ -53,11 +53,12 @@ export function printReceipt(o: Order, t: Tenant | null | undefined, fmt: (v: nu
     <div class="r"><span>${p.kind === "refund" ? "Refund · " : ""}${METHOD_LABEL[p.method] ?? p.method}</span><span>${p.kind === "refund" ? "−" : ""}${fmt(p.amount + p.tip)}</span></div>
     ${p.change ? `<div class="r m"><span>Change</span><span>${fmt(p.change)}</span></div>` : ""}`).join("");
   const gst = t?.market === "IN";
-  const label = kind === "bill" ? "BILL" : o.status === "refunded" ? "REFUND RECEIPT" : gst && t?.tax_id ? "TAX INVOICE" : "RECEIPT";
+  const label = kind === "quote" ? "QUOTATION" : kind === "bill" ? "BILL" : o.status === "refunded" ? "REFUND RECEIPT" : gst && t?.tax_id ? "TAX INVOICE" : "RECEIPT";
   const body = `${header(t)}
     <hr><div class="c b">${label}</div>
     <div class="r"><span>${esc(orderTitle(o))}</span><span>#${o.number}</span></div>
     <div>${when(o.closed_at ?? o.opened_at)}${o.guests ? ` · ${o.guests} guests` : ""}</div>
+    ${o.event ? `<div>Event: ${o.event.at ? when(o.event.at) : ""}${o.guests ? ` · ${o.guests} guests` : ""}</div>${o.event.venue ? `<div>Venue: ${esc(o.event.venue)}</div>` : ""}${o.customer_name ? `<div>For: ${esc(o.customer_name)}${o.customer_phone ? ` ${esc(o.customer_phone)}` : ""}</div>` : ""}` : ""}
     ${o.delivery ? `<div>Deliver to: ${esc([o.customer_name, o.customer_phone].filter(Boolean).join(" "))}</div><div>${esc(o.delivery.address)}</div>${o.delivery.note ? `<div>Note: ${esc(o.delivery.note)}</div>` : ""}` : ""}
     ${o.invoice_no && kind !== "bill" ? `<div class="r"><span>Invoice</span><span>${esc(o.invoice_no)}</span></div>` : ""}
     ${o.customer_gstin ? `<div>${o.customer_name ? `Bill to: ${esc(o.customer_name)}<br>` : ""}GSTIN: ${esc(o.customer_gstin)}</div>` : ""}
@@ -69,8 +70,9 @@ export function printReceipt(o: Order, t: Tenant | null | undefined, fmt: (v: nu
     ${o.delivery?.fee ? `<div class="r"><span>Delivery fee</span><span>${fmt(o.delivery.fee)}</span></div>` : ""}
     ${o.tip ? `<div class="r"><span>Tip</span><span>${fmt(o.tip)}</span></div>` : ""}
     <div class="r b huge"><span>Total</span><span>${fmt(o.due + o.tip)}</span></div>
-    ${pays ? `<hr>${pays}` : ""}
+    ${pays && kind !== "quote" ? `<hr>${pays}` : ""}
     ${kind === "bill" && t?.tips_enabled ? `<div class="sp"></div><div>Tip: ____________</div><div class="sp"></div><div>Total: ____________</div>` : ""}
+    ${kind === "quote" && o.paid ? `<div class="r"><span>Advance received</span><span>−${fmt(o.paid)}</span></div><div class="r b"><span>Balance</span><span>${fmt(o.balance)}</span></div>` : ""}
     ${kind === "bill" && o.balance > 0 && o.paid ? `<div class="r b"><span>Balance due</span><span>${fmt(o.balance)}</span></div>` : ""}
     <hr><div class="c">${esc(t?.receipt_footer || "Thank you!")}</div>`;
   printHtml(body, `Check ${o.number}`);

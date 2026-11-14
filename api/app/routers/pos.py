@@ -91,6 +91,8 @@ def order_out(o: Order) -> dict:
                       "rider_id": o.rider_id, "rider_name": o.rider_name,
                       "dispatched_at": o.dispatched_at.isoformat() if o.dispatched_at else None,
                       "delivered_at": o.delivered_at.isoformat() if o.delivered_at else None} if o.channel == "delivery" else None),
+        "event": ({"at": o.event_at.isoformat() if o.event_at else None, "venue": o.event_venue, "note": o.event_note,
+                   "status": o.event_status} if o.channel == "catering" else None),
         "promotion": {"id": o.promotion_id, "name": o.promotion_name, "amount": money(o.promotion_amount)} if o.promotion_id else None,
         "due": money(due(o)), "paid": money(o.paid), "refunded": money(o.refunded), "balance": money(balance(o)),
         "payment_method": o.payment_method, "void_reason": o.void_reason,
@@ -277,12 +279,16 @@ def open_table(table_id: str, ctx: Ctx = Depends(require("order")), db: Session 
 # ---------- Orders: takeaway, history, details ----------
 
 class NewOrderIn(BaseModel):
-    channel: str = Field(default="takeaway", pattern=r"^(takeaway|delivery)$")
+    channel: str = Field(default="takeaway", pattern=r"^(takeaway|delivery|catering)$")
     customer_name: str = Field(default="", max_length=120)
     customer_phone: str = Field(default="", max_length=40)
     delivery_address: str = Field(default="", max_length=500)
     delivery_note: str = Field(default="", max_length=200)
     delivery_fee: float | None = Field(default=None, ge=0, le=100_000)  # None = the restaurant's default
+    event_at: datetime | None = None  # catering: when the event is
+    event_venue: str = Field(default="", max_length=500)
+    event_note: str = Field(default="", max_length=2000)
+    guests: int = Field(default=0, ge=0, le=100_000)
 
 
 @router.post("/orders", status_code=201)
@@ -291,6 +297,11 @@ def new_order(body: NewOrderIn, ctx: Ctx = Depends(require("order")), db: Sessio
         raise HTTPException(422, "A delivery needs the customer's phone and address")
     o = Order(tenant_id=ctx.tenant_id, number=next_number(db, Order, ctx.tenant_id), channel=body.channel,
               customer_name=body.customer_name.strip(), customer_phone=body.customer_phone.strip(), opened_by=ctx.user.id)
+    if body.channel == "catering":
+        if not body.event_at:
+            raise HTTPException(422, "Pick the date and time of the event")
+        o.event_at, o.event_venue, o.event_note = body.event_at, body.event_venue.strip(), body.event_note.strip()
+        o.event_status, o.guests = "quote", body.guests
     if body.channel == "delivery":
         o.delivery_address, o.delivery_note, o.delivery_status = body.delivery_address.strip(), body.delivery_note.strip(), "preparing"
         o.delivery_fee = Decimal(str(body.delivery_fee)) if body.delivery_fee is not None else Decimal(ctx.tenant.delivery_fee or 0)
@@ -889,6 +900,8 @@ def kds_title(o: Order) -> str:
         return f"{o.table.name} · Dine-in"
     if o.channel == "takeaway":
         return f"Takeaway · #{o.number}" + (f" · {o.customer_name}" if o.customer_name else "")
+    if o.channel == "catering":
+        return f"Event · #{o.number}" + (f" · {o.customer_name}" if o.customer_name else "")
     if o.channel == "delivery":
         return f"Delivery · #{o.number}" + (f" · {o.customer_name}" if o.customer_name else "")
     return f"{o.channel.title()} · #{o.number}"

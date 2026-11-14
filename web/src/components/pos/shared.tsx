@@ -5,7 +5,7 @@ import { toast } from "sonner";
 import { api, money, type Session, type Tenant } from "@/lib/api";
 import { cn } from "@/lib/utils";
 
-export type Screen = "floor" | "order" | "orders" | "cash" | "online" | "kds" | "dash" | "menu" | "staff" | "settings" | "audit" | "floorplan" | "inventory" | "timesheets" | "locations" | "reservations" | "customers" | "offers" | "deliveries";
+export type Screen = "floor" | "order" | "orders" | "cash" | "online" | "kds" | "dash" | "menu" | "staff" | "settings" | "audit" | "floorplan" | "inventory" | "timesheets" | "locations" | "reservations" | "customers" | "offers" | "deliveries" | "events";
 
 export interface PosCtx {
   s: Session;
@@ -34,6 +34,7 @@ export const STATUS_TONE: Record<string, string> = {
 export function orderTitle(o: { table: string | null; channel: string; number: number; customer_name?: string }) {
   if (o.table) return `Table ${o.table.replace(/^T/, "")}`;
   if (o.channel === "takeaway") return `Takeaway #${o.number}${o.customer_name ? " · " + o.customer_name : ""}`;
+  if (o.channel === "catering") return `Event #${o.number}${o.customer_name ? " · " + o.customer_name : ""}`;
   if (o.channel === "delivery") return `Delivery #${o.number}${o.customer_name ? " · " + o.customer_name : ""}`;
   return `Order #${o.number}`;
 }

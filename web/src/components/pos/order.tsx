@@ -192,6 +192,7 @@ export function OrderScreen() {
               Check #{order.number} · {order.items.reduce((a, l) => a + l.qty, 0)} items
               {order.guests ? ` · ${order.guests} guests` : ""}{order.customer_phone ? ` · ${order.customer_phone}` : ""}
             </div>
+            {order.event && <div className="truncate text-xs text-muted-foreground">Event {order.event.at ? new Date(order.event.at).toLocaleString(undefined, { day: "numeric", month: "short", hour: "numeric", minute: "2-digit" }) : ""}{order.event.venue ? ` · ${order.event.venue}` : ""}</div>}
             {order.delivery && <div className="truncate text-xs text-muted-foreground">Deliver to {order.delivery.address}{order.delivery.rider_name ? ` · ${order.delivery.rider_name}` : ""}</div>}
           </button>
           {open && (
