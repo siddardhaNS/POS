@@ -43,7 +43,7 @@ const n3 = (v: number) => (Math.round(v * 1000) / 1000).toLocaleString(undefined
 const PO_TONE: Record<string, string> = { draft: "bg-muted text-muted-foreground", sent: "bg-sky/15 text-sky", received: "bg-leaf/15 text-[oklch(0.45_0.12_150)]", cancelled: "bg-muted text-muted-foreground" };
 const KIND_LABEL: Record<string, string> = { received: "Received", sale: "Sold", waste: "Waste", adjust: "Adjusted", count: "Count", transfer_in: "Transfer in", transfer_out: "Transfer out", produced: "Made in-house", prep_use: "Used in a preparation" };
 
-type Tab = "stock" | "recipes" | "orders" | "bills" | "suppliers" | "count" | "report";
+type Tab = "stock" | "recipes" | "orders" | "bills" | "transfers" | "suppliers" | "count" | "report";
 
 export function InventoryScreen() {
   const { s } = usePos();
@@ -53,13 +53,14 @@ export function InventoryScreen() {
     <div className="flex h-full flex-col gap-4 overflow-auto p-5 md:p-7">
       {manage && (
         <div className="shrink-0 overflow-x-auto">
-          <Seg value={tab} onChange={setTab} options={[["stock", "Stock"], ["recipes", "Recipes & food cost"], ["orders", "Purchase orders"], ["bills", "Bills & payables"], ["suppliers", "Suppliers"], ["count", "Stock count"], ["report", "Reports"]]} />
+          <Seg value={tab} onChange={setTab} options={[["stock", "Stock"], ["recipes", "Recipes & food cost"], ["orders", "Purchase orders"], ["bills", "Bills & payables"], ...(s.tenant?.brand_id ? [["transfers", "Transfers"] as [Tab, string]] : []), ["suppliers", "Suppliers"], ["count", "Stock count"], ["report", "Reports"]]} />
         </div>
       )}
       {(tab === "stock" || !manage) && <StockTab manage={manage} />}
       {manage && tab === "recipes" && <RecipesTab />}
       {manage && tab === "orders" && <OrdersTab />}
       {manage && tab === "bills" && <BillsTab />}
+      {manage && tab === "transfers" && <TransfersTab />}
       {manage && tab === "suppliers" && <SuppliersTab />}
       {manage && tab === "count" && <CountTab />}
       {manage && tab === "report" && <ReportTab />}
@@ -992,6 +993,124 @@ function CreditDialog({ suppliers, onClose, onSaved }: { suppliers: Supplier[]; 
           <Field label="Reason"><Input required minLength={2} maxLength={200} value={f.reason} onChange={(e) => set({ reason: e.target.value })} placeholder="Returned 5 kg spoiled tomatoes" className="h-11" /></Field>
           <Primary type="submit" className="h-11 justify-center">Record credit</Primary>
         </form>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+/* ---------- Transfers between locations ---------- */
+
+interface Transfer {
+  id: string; number: number; status: "sent" | "received" | "cancelled"; direction: "in" | "out"; from: string; to: string; note: string;
+  sent_by: string; received_by: string; sent_at: string; received_at: string | null; value: number;
+  lines: { i: number; name: string; unit: string; qty: number; received: number | null; cost: number }[];
+}
+interface Transfers { locations: { id: string; name: string; inventory: boolean }[]; transfers: Transfer[] }
+const X_TONE: Record<string, string> = { sent: "bg-sky/15 text-sky", received: "bg-leaf/15 text-[oklch(0.45_0.12_150)]", cancelled: "bg-muted text-muted-foreground" };
+
+function TransfersTab() {
+  const { fmt } = usePos();
+  const { data, reload } = usePoll<Transfers>("/inventory/transfers", 30000, "inventory");
+  const { data: stock } = usePoll<StockList>("/inventory/items", 0, "inventory");
+  const [sending, setSending] = useState(false);
+  const [receiving, setReceiving] = useState<Transfer | null>(null);
+  async function cancel(x: Transfer) {
+    if (confirm(`Call back transfer ${x.number}? The stock comes back here.`) && await run(api(`/inventory/transfers/${x.id}/cancel`, { method: "POST" }), "Transfer cancelled")) reload();
+  }
+  if (data && !data.locations.length) return <Card><Empty>Transfers move stock between your locations (a central kitchen to outlets, or outlet to outlet). Add a second location under Locations to use them.</Empty></Card>;
+  return (
+    <>
+      <div className="flex"><Primary className="ml-auto" onClick={() => setSending(true)} disabled={!data?.locations.length || !stock?.items.length}><Plus className="size-4" />Send stock</Primary></div>
+      <Card>
+        {!data ? <Empty>Loading…</Empty> : !data.transfers.length ? <Empty>No transfers yet.</Empty> : (
+          <div className="divide-y divide-border">
+            {data.transfers.map((x) => (
+              <div key={x.id} className="flex flex-wrap items-center gap-3 px-4 py-3">
+                <div className="min-w-0 flex-1">
+                  <div className="flex flex-wrap items-center gap-2 font-medium">
+                    #{x.number} · {x.direction === "out" ? `To ${x.to}` : `From ${x.from}`}
+                    <span className={cn("rounded-md px-2 py-0.5 text-xs font-semibold capitalize", X_TONE[x.status])}>{x.status === "sent" ? (x.direction === "in" ? "Arriving" : "On the way") : x.status}</span>
+                  </div>
+                  <div className="truncate text-xs text-muted-foreground">
+                    {x.lines.map((l) => `${n3(l.qty)} ${l.unit} ${l.name}${l.received != null && l.received < l.qty ? ` (got ${n3(l.received)})` : ""}`).join(", ")}
+                    {` · sent ${new Date(x.sent_at).toLocaleDateString(undefined, { day: "numeric", month: "short" })} by ${x.sent_by}`}{x.note ? ` · ${x.note}` : ""}
+                  </div>
+                </div>
+                <div className="font-mono text-sm tabular">{fmt(x.value)}</div>
+                {x.status === "sent" && x.direction === "in" && <Btn onClick={() => setReceiving(x)} className="bg-foreground text-background">Receive</Btn>}
+                {x.status === "sent" && x.direction === "out" && <Btn onClick={() => cancel(x)}>Call back</Btn>}
+              </div>
+            ))}
+          </div>
+        )}
+      </Card>
+      {sending && data && stock && <SendDialog sites={data.locations} stock={stock.items} onClose={() => setSending(false)} onSaved={() => { setSending(false); reload(); }} />}
+      {receiving && <ReceiveTransferDialog x={receiving} onClose={() => setReceiving(null)} onSaved={() => { setReceiving(null); reload(); }} />}
+    </>
+  );
+}
+
+function SendDialog({ sites, stock, onClose, onSaved }: { sites: Transfers["locations"]; stock: Stock[]; onClose: () => void; onSaved: () => void }) {
+  const ok = sites.filter((s) => s.inventory);
+  const [to, setTo] = useState(ok[0]?.id ?? "");
+  const [note, setNote] = useState("");
+  const [lines, setLines] = useState<{ stock_item_id: string; qty: string }[]>([{ stock_item_id: "", qty: "" }]);
+  const avail = stock.filter((s) => s.active && s.on_hand > 0);
+  async function send() {
+    const body = { to_tenant_id: to, note, lines: lines.filter((l) => l.stock_item_id && Number(l.qty) > 0).map((l) => ({ stock_item_id: l.stock_item_id, qty: Number(l.qty) })) };
+    if (await run(api("/inventory/transfers", { body }), "Stock sent")) onSaved();
+  }
+  return (
+    <Dialog open onOpenChange={(o) => !o && onClose()}>
+      <DialogContent className="max-h-[90vh] overflow-y-auto sm:max-w-lg">
+        <DialogHeader><DialogTitle>Send stock</DialogTitle><DialogDescription>It comes off your stock now and goes on theirs when they receive it, at your average cost.</DialogDescription></DialogHeader>
+        <div className="grid gap-4">
+          <Field label="To"><select value={to} onChange={(e) => setTo(e.target.value)} className={sel}>
+            {sites.map((s) => <option key={s.id} value={s.id} disabled={!s.inventory}>{s.name}{s.inventory ? "" : " (inventory off)"}</option>)}</select></Field>
+          <div className="space-y-2">
+            <Label>Items</Label>
+            {lines.map((l, k) => {
+              const s = avail.find((x) => x.id === l.stock_item_id);
+              return (
+                <div key={k} className="flex gap-2">
+                  <select value={l.stock_item_id} onChange={(e) => setLines(lines.map((x, j) => (j === k ? { ...x, stock_item_id: e.target.value } : x)))} className={cn(sel, "h-10 flex-1")}>
+                    <option value="">Pick stock item</option>
+                    {avail.map((x) => <option key={x.id} value={x.id}>{x.name} · {n3(x.on_hand)} {x.unit}</option>)}
+                  </select>
+                  <Input type="number" min={0} step="0.001" max={s?.on_hand} value={l.qty} onChange={(e) => setLines(lines.map((x, j) => (j === k ? { ...x, qty: e.target.value } : x)))} placeholder={s?.unit ?? "qty"} className="h-10 w-28 font-mono" />
+                  <button type="button" onClick={() => setLines(lines.filter((_, j) => j !== k))} className="grid size-10 shrink-0 place-items-center rounded-lg bg-muted" aria-label="Remove"><Trash2 className="size-4" /></button>
+                </div>
+              );
+            })}
+            <Btn onClick={() => setLines([...lines, { stock_item_id: "", qty: "" }])}><Plus className="size-4" />Item</Btn>
+          </div>
+          <Field label="Note"><Input value={note} maxLength={300} onChange={(e) => setNote(e.target.value)} placeholder="Sent with the 4 pm van" className="h-11" /></Field>
+          <Primary onClick={send} disabled={!to || !lines.some((l) => l.stock_item_id && Number(l.qty) > 0)} className="h-11 justify-center">Send</Primary>
+        </div>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+function ReceiveTransferDialog({ x, onClose, onSaved }: { x: Transfer; onClose: () => void; onSaved: () => void }) {
+  const [got, setGot] = useState(x.lines.map((l) => String(l.qty)));
+  async function receive() {
+    if (await run(api(`/inventory/transfers/${x.id}/receive`, { body: { received: got.map((v) => Number(v) || 0) } }), `Transfer ${x.number} received`)) onSaved();
+  }
+  return (
+    <Dialog open onOpenChange={(o) => !o && onClose()}>
+      <DialogContent className="sm:max-w-md">
+        <DialogHeader><DialogTitle>Receive transfer {x.number}</DialogTitle><DialogDescription>From {x.from}. Change any quantity that arrived short; the sender sees the difference in their activity log.</DialogDescription></DialogHeader>
+        <div className="space-y-2">
+          {x.lines.map((l, k) => (
+            <div key={l.i} className="flex items-center gap-3">
+              <span className="min-w-0 flex-1 truncate text-sm">{l.name}<span className="text-xs text-muted-foreground"> · sent {n3(l.qty)} {l.unit}</span></span>
+              <Input type="number" min={0} max={l.qty} step="0.001" value={got[k]} onChange={(e) => setGot(got.map((v, j) => (j === k ? e.target.value : v)))} className="h-10 w-28 font-mono" />
+              <span className="w-8 text-sm text-muted-foreground">{l.unit}</span>
+            </div>
+          ))}
+        </div>
+        <Primary onClick={receive} className="h-11 justify-center">Add to stock</Primary>
       </DialogContent>
     </Dialog>
   );

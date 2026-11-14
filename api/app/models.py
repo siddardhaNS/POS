@@ -846,3 +846,24 @@ class VendorCredit(Base):
     on_date: Mapped[date] = mapped_column(Date)
     user_name: Mapped[str] = mapped_column(String(120), default="")
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now)
+
+
+# ---------- Stock transfers between locations ----------
+
+class StockTransfer(Base):
+    """Stock sent from one location of a business to another (central kitchen to outlets, or outlet to outlet).
+    Sending takes it off the source; the destination receives what actually arrived."""
+    __tablename__ = "stock_transfers"
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=uid)
+    brand_id: Mapped[str] = mapped_column(ForeignKey("brands.id", ondelete="CASCADE"), index=True)
+    number: Mapped[int] = mapped_column(Integer)
+    from_tenant_id: Mapped[str] = mapped_column(ForeignKey("tenants.id", ondelete="CASCADE"), index=True)
+    to_tenant_id: Mapped[str] = mapped_column(ForeignKey("tenants.id", ondelete="CASCADE"), index=True)
+    status: Mapped[str] = mapped_column(String(10), default="sent")  # sent | received | cancelled
+    # [{"name", "unit", "qty" (base), "unit_cost" (per base), "from_item_id", "to_item_id", "received" (base)}]
+    lines: Mapped[list] = mapped_column(JSON, default=list)
+    note: Mapped[str] = mapped_column(String(300), default="")
+    sent_by: Mapped[str] = mapped_column(String(120), default="")
+    received_by: Mapped[str] = mapped_column(String(120), default="")
+    sent_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now)
+    received_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
