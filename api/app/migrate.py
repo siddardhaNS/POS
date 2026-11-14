@@ -42,6 +42,8 @@ COLUMNS: dict[str, list[tuple[str, str, str | None]]] = {
          "UPDATE tenants SET loyalty_point_value = CASE WHEN market = 'US' THEN 0.01 ELSE 1 END"),
         ("loyalty_min_redeem", "INTEGER NOT NULL DEFAULT 100", None),
         ("delivery_fee", "NUMERIC(10,2) NOT NULL DEFAULT 0", None),
+        ("kiosk_token", "VARCHAR(40) NOT NULL DEFAULT ''", None),
+        ("kiosk_auto_send", "BOOLEAN NOT NULL DEFAULT FALSE", None),
     ],
     "suppliers": [
         ("payment_terms_days", "INTEGER NOT NULL DEFAULT 15", None),
@@ -194,5 +196,5 @@ SELECT md5(random()::text || id), id, 'GST ' || trim(trailing '.' from trim(trai
        json_build_array(json_build_object('name', 'CGST', 'rate', tax_rate / 2), json_build_object('name', 'SGST', 'rate', tax_rate / 2)),
        0, now()
 FROM tenants WHERE market = 'IN';
-UPDATE tenants t SET default_tax_id = r.id FROM tax_rates r WHERE r.tenant_id = t.id AND t.market = 'IN';
+UPDATE tenants t SET default_tax_id = r.id, tax_label = r.name FROM tax_rates r WHERE r.tenant_id = t.id AND t.market = 'IN';
 """

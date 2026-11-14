@@ -23,6 +23,7 @@ MODULES: dict[str, tuple[str, str]] = {
     "reservations": ("Reservations & waitlist", "Bookings by time and table, a walk-in waitlist with quoted waits and notify by WhatsApp or SMS, and seating that opens the check."),
     "qr_ordering": ("QR ordering", "Guests scan the code on their table to see the menu, order, call a waiter or ask for the bill."),
     "locations": ("Multi-location", "Run several outlets under one business: switch location, add outlets with the menu copied, combined reports, manager access per outlet."),
+    "kiosk": ("Self-order kiosk", "A touch screen at the counter where guests browse the menu, order and pay at the till; orders arrive with a number to call."),
     "timeclock": ("Staff time", "Clock in and out with a PIN, breaks, timesheets with overtime, labour cost, tip pooling and payroll export."),
 }
 

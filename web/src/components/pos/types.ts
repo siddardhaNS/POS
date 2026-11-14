@@ -15,7 +15,7 @@ export interface MenuItem {
   /** Tax class (null = the category's, then the restaurant default) and HSN / SAC code. */
   tax_rate_id?: string | null; hsn?: string;
 }
-export type MenuChannel = "dine_in" | "takeaway" | "delivery" | "online" | "qr";
+export type MenuChannel = "dine_in" | "takeaway" | "delivery" | "online" | "qr" | "kiosk";
 export interface Schedule { days?: number[]; from?: string; to?: string }
 export interface Category {
   id: string; name: string; phase: string; phase_set: boolean; items: MenuItem[];

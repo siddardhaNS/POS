@@ -9,8 +9,9 @@ from zoneinfo import ZoneInfo
 from fastapi import HTTPException
 
 # Sales channels an item can be limited to. An empty list on the item means "everywhere".
-CHANNELS = ("dine_in", "takeaway", "delivery", "online", "qr")
-CHANNEL_LABEL = {"dine_in": "dine-in", "takeaway": "takeaway", "delivery": "delivery", "online": "delivery apps", "qr": "table QR"}
+CHANNELS = ("dine_in", "takeaway", "delivery", "online", "qr", "kiosk")
+CHANNEL_LABEL = {"dine_in": "dine-in", "takeaway": "takeaway", "delivery": "delivery", "online": "delivery apps", "qr": "table QR",
+                 "kiosk": "the kiosk"}
 DAY_LABEL = ("Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun")
 ONLINE = {"swiggy", "zomato", "doordash", "ubereats", "website"}
 
@@ -19,6 +20,8 @@ def channel_of(order_channel: str, source: str = "") -> str:
     """Map an order's channel (and who placed the line) onto the menu channel it sells through."""
     if source == "guest":
         return "qr"
+    if source == "kiosk":
+        return "kiosk"
     if order_channel in ONLINE:
         return "online"
     return order_channel if order_channel in CHANNELS else "dine_in"

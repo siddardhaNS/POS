@@ -67,6 +67,8 @@ class Tenant(Base):
     loyalty_point_value: Mapped[Decimal] = mapped_column(Numeric(10, 4), default=Decimal("1"))
     loyalty_min_redeem: Mapped[int] = mapped_column(Integer, default=100)
     delivery_fee: Mapped[Decimal] = mapped_column(Numeric(10, 2), default=Decimal("0"))  # default fee on new deliveries
+    kiosk_token: Mapped[str] = mapped_column(String(40), default="", index=True)  # secret in the kiosk link ("" = none)
+    kiosk_auto_send: Mapped[bool] = mapped_column(Boolean, default=False)  # kiosk orders go straight to the kitchen
 
 
 class User(Base):

@@ -31,12 +31,12 @@ function Toggle({ on, onChange, label, hint }: { on: boolean; onChange: (v: bool
 export function SettingsScreen() {
   const { go, s } = usePos();
   const [pwOpen, setPwOpen] = useState(false);
-  const [tab, setTab] = useState<"restaurant" | "tax" | "loyalty" | "receipts" | "printers">("restaurant");
+  const [tab, setTab] = useState<"restaurant" | "tax" | "loyalty" | "receipts" | "printers" | "kiosk">("restaurant");
   return (
     <div className="flex h-full flex-col gap-5 overflow-auto p-5 md:p-7">
       <div className="flex flex-wrap items-center gap-3">
         <div className="overflow-x-auto">
-          <Seg value={tab} onChange={setTab} options={[["restaurant", "Restaurant"], ["tax", "Taxes & tips"], ["loyalty", "Loyalty"], ["receipts", "Receipts"], ...(hasModule(s.tenant, "printing") ? [["printers", "Printers"] as ["printers", string]] : [])]} />
+          <Seg value={tab} onChange={setTab} options={[["restaurant", "Restaurant"], ["tax", "Taxes & tips"], ["loyalty", "Loyalty"], ["receipts", "Receipts"], ...(hasModule(s.tenant, "printing") ? [["printers", "Printers"] as ["printers", string]] : []), ...(hasModule(s.tenant, "kiosk") ? [["kiosk", "Kiosk"] as ["kiosk", string]] : [])]} />
         </div>
         <button onClick={() => go("floorplan")} className="flex items-center gap-1.5 rounded-xl bg-card px-3.5 py-2 text-sm font-medium ring-1 ring-border">
           <Armchair className="size-4" />Tables are in Floor plan
@@ -48,7 +48,7 @@ export function SettingsScreen() {
         )}
         <ChangePasswordDialog open={pwOpen} onOpenChange={setPwOpen} />
       </div>
-      {tab === "printers" && hasModule(s.tenant, "printing") ? <PrintersPanel /> : <TenantForm tab={tab === "printers" ? "receipts" : tab} />}
+      {tab === "printers" && hasModule(s.tenant, "printing") ? <PrintersPanel /> : tab === "kiosk" && hasModule(s.tenant, "kiosk") ? <KioskPanel /> : <TenantForm tab={tab === "printers" || tab === "kiosk" ? "receipts" : tab} />}
     </div>
   );
 }
@@ -242,6 +242,36 @@ function TaxClasses({ data, onChange }: { data: TaxRates; onChange: (d: TaxRates
           + {data.rates.length ? "Add tax class" : "Set up tax classes"}
         </button>
       )}
+    </div>
+  );
+}
+
+/* ---------- Kiosk ---------- */
+
+function KioskPanel() {
+  const [k, setK] = useState<{ token: string; auto_send: boolean } | null>(null);
+  useEffect(() => { api<{ token: string; auto_send: boolean }>("/kiosk-settings").then(setK).catch(() => {}); }, []);
+  if (!k) return <p className="text-sm text-muted-foreground">Loading…</p>;
+  const link = `${window.location.origin}/k/${k.token}`;
+  async function save(body: { auto_send?: boolean; rotate?: boolean }, ok: string) {
+    const r = await run(api<{ token: string; auto_send: boolean }>("/kiosk-settings", { method: "PUT", body }), ok);
+    if (r) setK(r);
+  }
+  return (
+    <div className="grid max-w-2xl gap-5">
+      <div className="space-y-3 rounded-2xl bg-card p-5 ring-1 ring-border">
+        <div className="font-semibold">Kiosk link</div>
+        <p className="text-sm text-muted-foreground">Open this on the counter tablet in full screen. Guests order and pay at the till; each order shows up as a takeaway with a number to call.</p>
+        <div className="break-all rounded-xl bg-muted px-3 py-2 font-mono text-sm">{link}</div>
+        <div className="flex flex-wrap gap-2">
+          <button type="button" onClick={() => { void navigator.clipboard?.writeText(link); }} className="h-10 rounded-lg bg-muted px-4 text-sm font-semibold">Copy link</button>
+          <a href={link} target="_blank" rel="noopener" className="flex h-10 items-center rounded-lg bg-foreground px-4 text-sm font-semibold text-background">Open kiosk</a>
+          <button type="button" onClick={() => window.confirm("Replace the kiosk link? Screens using the old link stop working.") && save({ rotate: true }, "New kiosk link made")} className="h-10 rounded-lg px-4 text-sm text-destructive">Replace link</button>
+        </div>
+      </div>
+      <Toggle on={k.auto_send} onChange={(v) => save({ auto_send: v }, v ? "Kiosk orders go straight to the kitchen" : "Kiosk orders wait for payment")}
+        label="Send kiosk orders to the kitchen straight away" hint="Off: the cashier sends the order once it's paid. On: cooking starts as soon as the guest orders." />
+      <p className="text-sm text-muted-foreground">Choose which dishes appear on the kiosk with &quot;Sold on&quot; in the Menu.</p>
     </div>
   );
 }

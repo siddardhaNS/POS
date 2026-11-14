@@ -25,9 +25,9 @@ export function nutritionLine(n: Nutrition | undefined) {
 
 export const allergenList = (a: string[] | undefined) => (a ?? []).map((x) => ALLERGEN_LABEL[x] ?? x).join(", ");
 
-export const MENU_CHANNELS: { k: "dine_in" | "takeaway" | "delivery" | "online" | "qr"; l: string }[] = [
+export const MENU_CHANNELS: { k: "dine_in" | "takeaway" | "delivery" | "online" | "qr" | "kiosk"; l: string }[] = [
   { k: "dine_in", l: "Dine-in" }, { k: "takeaway", l: "Takeaway" }, { k: "delivery", l: "Delivery" },
-  { k: "online", l: "Delivery apps" }, { k: "qr", l: "Table QR" },
+  { k: "online", l: "Delivery apps" }, { k: "qr", l: "Table QR" }, { k: "kiosk", l: "Kiosk" },
 ];
 
 const ONLINE = ["swiggy", "zomato", "doordash", "ubereats", "website"];
