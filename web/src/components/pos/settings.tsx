@@ -10,6 +10,7 @@ import { api, hasModule, type Tenant } from "@/lib/api";
 import { cn } from "@/lib/utils";
 import { printReceipt } from "./print";
 import { PrintersPanel } from "./printers";
+import { AppsPanel } from "./apps";
 import { Seg, run, usePos } from "./shared";
 import type { Order, TaxRates } from "./types";
 
@@ -31,12 +32,13 @@ function Toggle({ on, onChange, label, hint }: { on: boolean; onChange: (v: bool
 export function SettingsScreen() {
   const { go, s } = usePos();
   const [pwOpen, setPwOpen] = useState(false);
-  const [tab, setTab] = useState<"restaurant" | "tax" | "loyalty" | "receipts" | "printers" | "kiosk">("restaurant");
+  const [tab, setTab] = useState<"restaurant" | "tax" | "loyalty" | "receipts" | "printers" | "kiosk" | "apps">(() =>
+    "restaurant");
   return (
     <div className="flex h-full flex-col gap-5 overflow-auto p-5 md:p-7">
       <div className="flex flex-wrap items-center gap-3">
         <div className="overflow-x-auto">
-          <Seg value={tab} onChange={setTab} options={[["restaurant", "Restaurant"], ["tax", "Taxes & tips"], ["loyalty", "Loyalty"], ["receipts", "Receipts"], ...(hasModule(s.tenant, "printing") ? [["printers", "Printers"] as ["printers", string]] : []), ...(hasModule(s.tenant, "kiosk") ? [["kiosk", "Kiosk"] as ["kiosk", string]] : [])]} />
+          <Seg value={tab} onChange={setTab} options={[["restaurant", "Restaurant"], ["tax", "Taxes & tips"], ["loyalty", "Loyalty"], ["receipts", "Receipts"], ...(hasModule(s.tenant, "printing") ? [["printers", "Printers"] as ["printers", string]] : []), ...(hasModule(s.tenant, "kiosk") ? [["kiosk", "Kiosk"] as ["kiosk", string]] : []), ["apps", "Apps"]]} />
         </div>
         <button onClick={() => go("floorplan")} className="flex items-center gap-1.5 rounded-xl bg-card px-3.5 py-2 text-sm font-medium ring-1 ring-border">
           <Armchair className="size-4" />Tables are in Floor plan
@@ -48,7 +50,7 @@ export function SettingsScreen() {
         )}
         <ChangePasswordDialog open={pwOpen} onOpenChange={setPwOpen} />
       </div>
-      {tab === "printers" && hasModule(s.tenant, "printing") ? <PrintersPanel /> : tab === "kiosk" && hasModule(s.tenant, "kiosk") ? <KioskPanel /> : <TenantForm tab={tab === "printers" || tab === "kiosk" ? "receipts" : tab} />}
+      {tab === "printers" && hasModule(s.tenant, "printing") ? <PrintersPanel /> : tab === "kiosk" && hasModule(s.tenant, "kiosk") ? <KioskPanel /> : tab === "apps" ? <AppsPanel /> : <TenantForm tab={tab === "printers" || tab === "kiosk" ? "receipts" : tab} />}
     </div>
   );
 }

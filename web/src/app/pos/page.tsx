@@ -18,6 +18,7 @@ import { InventoryScreen } from "@/components/pos/inventory";
 import { TimesheetsScreen } from "@/components/pos/timesheets";
 import { ReservationsScreen } from "@/components/pos/reservations";
 import { LocationSwitcher, LocationsScreen } from "@/components/pos/locations";
+import { DesktopAppLink } from "@/components/pos/apps";
 import { Floor } from "@/components/pos/floor";
 import { Kitchen, Online } from "@/components/pos/kitchen";
 import { LockScreen } from "@/components/pos/lock-screen";
@@ -193,6 +194,7 @@ function ShellInner({ s, screen, go, orderId, payNow, allowed, navOpen, setNavOp
         );
       })}
       <div className="flex-1" />
+      <DesktopAppLink />
       {trialDays != null && (
         <div className="mb-2 rounded-xl bg-saffron/15 px-3 py-2.5 text-xs text-saffron">Free trial · {trialDays} day{trialDays === 1 ? "" : "s"} left</div>
       )}
