@@ -282,7 +282,7 @@ export function OrderScreen() {
 
         <div className="space-y-1.5 border-t border-border px-5 py-4 text-sm">
           <Row l={order.tax_inclusive ? "Value before tax" : "Subtotal"} v={fmt(order.subtotal)} />
-          {order.discount.amount > 0 && <Row l={`Discount · ${order.discount.kind} === "percent" ? `${order.discount.value}%` : "fixed"} · ${order.discount.reason}`} v={`−${fmt(order.discount.amount)}`} accent />}
+          {order.discount.amount > 0 && <Row l={`Discount · ${order.discount.kind === "percent" ? `${order.discount.value}%` : "fixed"} ·${order.discount.reason}`} v={`−${fmt(order.discount.amount)}`} accent />}
           {order.promotion && <Row l={`Offer · ${order.promotion.name}`} v={`−${fmt(order.promotion.amount)}`} accent />}
           {taxLines(order, s.tenant?.tax_label || "Tax").map(([l, v]) => <Row key={l} l={l} v={fmt(v)} />)}
           {!!order.delivery?.fee && <Row l="Delivery fee" v={fmt(order.delivery.fee)} />}
