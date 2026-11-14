@@ -3,10 +3,11 @@
 import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { toast } from "sonner";
-import { Ban, Building2, Check, Clock, KeyRound, LogOut, Mail, MapPin, Phone, Play, Search, Store, Target, X } from "lucide-react";
+import { Ban, Bug, Building2, Check, Clock, KeyRound, LogOut, Mail, MapPin, Phone, Play, Search, Store, Target, X } from "lucide-react";
 import { Logo } from "@/components/brand";
 import { ChangePasswordDialog } from "@/components/change-password";
 import { LeadsPanel } from "@/components/admin/leads";
+import { ErrorsPanel } from "@/components/admin/errors";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
@@ -54,7 +55,7 @@ export default function AdminPage() {
   const router = useRouter();
   const [ready, setReady] = useState(false);
   const [pwOpen, setPwOpen] = useState(false);
-  const [view, setView] = useState<"restaurants" | "leads">("restaurants");
+  const [view, setView] = useState<"restaurants" | "leads" | "errors">("restaurants");
   const [filter, setFilter] = useState("pending");
   const [q, setQ] = useState("");
   const [rows, setRows] = useState<TenantRow[]>([]);
@@ -165,6 +166,11 @@ export default function AdminPage() {
               view === "leads" ? "bg-white/12 text-white" : "text-white/55 hover:text-white")}>
             <Target className="size-4" />Leads
           </button>
+          <button onClick={() => setView("errors")}
+            className={cn("mt-0.5 flex w-full items-center gap-2 rounded-lg px-3 py-2.5 text-left text-[13.5px] transition",
+              view === "errors" ? "bg-white/12 text-white" : "text-white/55 hover:text-white")}>
+            <Bug className="size-4" />Errors
+          </button>
         </nav>
         <div className="mt-auto rounded-xl bg-white/[0.06] p-3 text-xs text-white/50">
           <div className="flex justify-between"><span>Live · INR</span><span className="font-mono text-white">{stats?.live_by_market.IN ?? 0}</span></div>
@@ -184,11 +190,11 @@ export default function AdminPage() {
 
       <main className="min-w-0 flex-1 px-5 py-8 md:px-10">
         <div className="mb-5 flex gap-2 md:hidden">
-          {(["restaurants", "leads"] as const).map((v) => (
+          {(["restaurants", "leads", "errors"] as const).map((v) => (
             <button key={v} onClick={() => setView(v)} className={cn("h-9 rounded-lg px-3 text-sm font-medium capitalize ring-1", view === v ? "bg-foreground text-background ring-foreground" : "bg-card ring-border")}>{v}</button>
           ))}
         </div>
-        {view === "leads" ? <LeadsPanel /> : (<>
+        {view === "leads" ? <LeadsPanel /> : view === "errors" ? <ErrorsPanel /> : (<>
         <div className="flex flex-wrap items-end gap-4">
           <div>
             <h1 className="text-2xl font-semibold tracking-tight">Restaurants</h1>

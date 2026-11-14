@@ -877,3 +877,27 @@ class StockTransfer(Base):
     received_by: Mapped[str] = mapped_column(String(120), default="")
     sent_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now)
     received_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+
+
+# ---------- Error log (platform admin) ----------
+
+class ErrorLog(Base):
+    """Something that broke: an unhandled API error or a crash in a browser / app, tied to the restaurant and person
+    it happened to when known. Identical errors are folded into one row with a count."""
+    __tablename__ = "error_logs"
+    __table_args__ = (Index("ix_error_logs_tenant_seen", "tenant_id", "last_seen"),)
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=uid)
+    tenant_id: Mapped[str | None] = mapped_column(ForeignKey("tenants.id", ondelete="CASCADE"), nullable=True)
+    source: Mapped[str] = mapped_column(String(10), default="api")  # api | web | mobile | desktop
+    fingerprint: Mapped[str] = mapped_column(String(64), index=True)  # same error, same place
+    message: Mapped[str] = mapped_column(String(500), default="")
+    detail: Mapped[str] = mapped_column(Text, default="")  # traceback / stack
+    method: Mapped[str] = mapped_column(String(10), default="")
+    path: Mapped[str] = mapped_column(String(300), default="")
+    status: Mapped[int] = mapped_column(Integer, default=500)
+    user_name: Mapped[str] = mapped_column(String(120), default="")
+    user_agent: Mapped[str] = mapped_column(String(300), default="")
+    count: Mapped[int] = mapped_column(Integer, default=1)
+    resolved: Mapped[bool] = mapped_column(Boolean, default=False, index=True)
+    first_seen: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now)
+    last_seen: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now)
