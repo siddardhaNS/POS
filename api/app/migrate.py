@@ -71,6 +71,8 @@ COLUMNS: dict[str, list[tuple[str, str, str | None]]] = {
         ("customer_gstin", "VARCHAR(15) NOT NULL DEFAULT ''", None),
         ("customer_id", "VARCHAR(36) NULL REFERENCES customers(id) ON DELETE SET NULL", None),
         ("tax_inclusive", "BOOLEAN NULL", None),
+        ("client_id", "VARCHAR(40) NULL", None),
+        ("client_ref", "VARCHAR(20) NOT NULL DEFAULT ''", None),
         ("delivery_address", "TEXT NOT NULL DEFAULT ''", None),
         ("delivery_note", "VARCHAR(200) NOT NULL DEFAULT ''", None),
         ("delivery_fee", "NUMERIC(10,2) NOT NULL DEFAULT 0", None),

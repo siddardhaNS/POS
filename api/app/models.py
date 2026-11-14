@@ -165,6 +165,10 @@ class Order(Base):
     customer_id: Mapped[str | None] = mapped_column(ForeignKey("customers.id", ondelete="SET NULL"), nullable=True, index=True)
     # Menu prices on this check already include tax (snapshot of the restaurant setting; null = not decided yet)
     tax_inclusive: Mapped[bool | None] = mapped_column(Boolean, nullable=True)
+    # Sales rung up on a counter app while offline: the device's own id for the sale (makes syncing safe to repeat)
+    # and the token number the guest was given
+    client_id: Mapped[str | None] = mapped_column(String(40), nullable=True, index=True)
+    client_ref: Mapped[str] = mapped_column(String(20), default="")
     # In-house delivery (channel "delivery")
     delivery_address: Mapped[str] = mapped_column(Text, default="")
     delivery_note: Mapped[str] = mapped_column(String(200), default="")
